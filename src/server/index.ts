@@ -1,4 +1,4 @@
-import { PORT, ensureDataDirs } from './config';
+import { HOST, PORT, ensureDataDirs } from './config';
 import { createApp } from './app';
 import { db } from './db/connection';
 
@@ -6,7 +6,7 @@ import { db } from './db/connection';
 ensureDataDirs();
 db();
 
-createApp().listen(PORT, () => {
+createApp().listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
-  console.log(`[rat] api listening on http://127.0.0.1:${PORT}`);
+  console.log(`[rat] api listening on http://${HOST}:${PORT}`);
 });

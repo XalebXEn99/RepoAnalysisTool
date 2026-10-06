@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  rat:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - rat-data:/app/data
+    environment:
+      - RAT_HOST=0.0.0.0
+      - RAT_PORT=8787
+      - RAT_DATA_DIR=/app/data
+    restart: unless-stopped
+
+volumes:
+  rat-data:

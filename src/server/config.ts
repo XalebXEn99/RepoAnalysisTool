@@ -14,6 +14,7 @@ export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 export const DB_PATH = process.env.RAT_DB_PATH ?? path.join(DATA_DIR, 'rat.db');
 export const CLIENT_DIST = path.join(ROOT, 'dist', 'client');
 
+export const HOST = process.env.RAT_HOST ?? '0.0.0.0';
 export const PORT = Number(process.env.RAT_PORT ?? 8787);
 
 /** Rename detection threshold demanded by the brief (docs/test_brief.md §2). */

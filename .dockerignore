@@ -1,0 +1,12 @@
+node_modules
+data
+.git
+.vscode
+.idea
+*.md
+docs
+tests
+.gitignore
+*.log
+.DS_Store
+tmp
