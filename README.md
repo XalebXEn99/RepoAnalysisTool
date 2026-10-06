@@ -8,7 +8,7 @@ churn is, and how volatile each file, directory and the repository as a whole is
 Requirements: Node >= 18.12, npm, and a system `git` (>= 2.30). The test suite also needs `zip`.
 
 ```bash
-git clone https://sdp.ms.wits.ac.za/Xaleb/RepoAnalysisTool.git
+git clone https://sdp.ms.wits.ac.za/Xaleb/RepoAnalysisTool
 cd RepoAnalysisTool
 npm install
 npm run dev
