@@ -100,18 +100,40 @@ const AGG_SELECT = `
   JOIN objects o ON o.id = ch.object_id
 `;
 
+/** Kind of a registered object, or null when the repository never contained it. */
+function objectKind(repoId: number, objectPath: string): ObjectKind | null {
+  const row = db()
+    .prepare('SELECT kind FROM objects WHERE repository_id = ? AND path = ?')
+    .get(repoId, objectPath) as { kind: ObjectKind } | undefined;
+  return row?.kind ?? null;
+}
+
 /** Metrics for a single object (file, directory, or '' = repository root). */
 export function getObjectMetrics(filters: MetricFilters, objectPath: string): ObjectMetrics | null {
+  const kind = objectKind(filters.repoId, objectPath);
+  if (kind === null) return null; // unknown object: the route answers 404
   const setSize = commitSetSize(filters);
   const p = commitPredicate(filters);
-  const row = db()
+  // An aggregate without GROUP BY always yields one row, so an object that has
+  // no changes inside H comes back zeroed rather than missing; path and kind
+  // are taken from the objects table because the join may have matched nothing.
+  const row = (db()
     .prepare(
       `${AGG_SELECT}
        WHERE ch.repository_id = ? AND o.repository_id = ? AND o.path = ? AND ${p.sql}`,
     )
-    .get(filters.repoId, filters.repoId, objectPath, ...p.params) as RawAgg | undefined;
-  if (!row) return null;
-  return toObjectMetrics(row, setSize);
+    .get(filters.repoId, filters.repoId, objectPath, ...p.params) ?? {}) as Partial<RawAgg>;
+  return toObjectMetrics(
+    {
+      path: objectPath,
+      kind,
+      added: row.added ?? 0,
+      removed: row.removed ?? 0,
+      churn: row.churn ?? 0,
+      modifications: row.modifications ?? 0,
+    },
+    setSize,
+  );
 }
 
 /** Immediate children of a directory ('' = root), i.e. the directory table. */

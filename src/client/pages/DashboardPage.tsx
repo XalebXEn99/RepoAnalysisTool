@@ -8,6 +8,7 @@ import {
   ObjectTable,
   TimelineChart,
 } from '../components/MetricBits';
+import { RatWheelLoader } from '../components/RatWheelLoader';
 import type { AuthorInfo, ChildrenResponse, MetricsResponse, RepositorySummary, SummaryResponse } from '../../shared/types';
 
 export function DashboardPage(props: {
@@ -21,6 +22,7 @@ export function DashboardPage(props: {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [object, setObject] = useState<MetricsResponse | null>(null);
   const [children, setChildren] = useState<ChildrenResponse | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export function DashboardPage(props: {
     }
     let cancelled = false;
     setError('');
+    setLoading(true);
     const base = filtersToQuery(props.repoId, { ...props.filters, path: '' });
     const scoped = filtersToQuery(props.repoId, props.filters);
     Promise.all([api.summary(base), api.object(scoped), api.children(scoped)])
@@ -47,6 +50,9 @@ export function DashboardPage(props: {
           setObject(null);
           setChildren(null);
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -59,7 +65,7 @@ export function DashboardPage(props: {
         <h1>Dashboard</h1>
         <section className="panel">
           <p className="muted">
-            No repository selected. Add one under “Add repository”, then pick it here to see its metrics.
+            No specimen selected. Use the <strong>+</strong> button in the sidebar to add a repository, then pick it here.
           </p>
         </section>
         <FilterBar
@@ -78,7 +84,7 @@ export function DashboardPage(props: {
 
   return (
     <>
-      <h1>Dashboard — {repo?.name ?? `repo ${props.repoId}`}</h1>
+      <h1>🔬 {repo?.name ?? `repo ${props.repoId}`}</h1>
       {repo && repo.status !== 'ready' && (
         <section className="panel">
           <span className={`badge ${repo.status}`}>{repo.status}</span>{' '}
@@ -93,37 +99,38 @@ export function DashboardPage(props: {
         onRepoChange={props.onRepoChange}
         onFiltersChange={props.onFiltersChange}
       />
+      {loading && <RatWheelLoader label="Analysing specimen…" />}
       {error && (
         <section className="panel">
           <p className="error-text">{error}</p>
         </section>
       )}
-      {object && (
+      {!loading && object && (
         <>
           <Breadcrumbs path={props.filters.path} onPick={(path) => props.onFiltersChange({ ...props.filters, path })} />
           <MetricCards
-            title={props.filters.path === '' ? 'Repository metrics (root directory)' : props.filters.path}
+            title={props.filters.path === '' ? 'Repository Overview' : props.filters.path}
             metrics={object.metrics}
           />
           <TimelineChart points={object.timeline} />
           <AuthorOwnershipTable rows={object.authors} />
           {children && children.children.length > 0 && (
             <ObjectTable
-              title={`Immediate children of ${props.filters.path === '' ? '(repository root)' : props.filters.path}`}
+              title={`Contents of ${props.filters.path === '' ? 'repository root' : props.filters.path}`}
               rows={children.children}
               onPick={(row) => props.onFiltersChange({ ...props.filters, path: row.path })}
             />
           )}
         </>
       )}
-      {summary && (
+      {!loading && summary && (
         <>
-          <ObjectTable title="Top churned files" rows={summary.topChurn} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />
-          <ObjectTable title="Most modified files" rows={summary.topModified} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />
+          <ObjectTable title="Top Churned Files" rows={summary.topChurn} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />
+          <ObjectTable title="Most Modified Files" rows={summary.topModified} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />
         </>
       )}
       {props.repoId && (
-        <p className="muted">
+        <p className="muted" style={{ fontSize: 11, opacity: 0.6 }}>
           raw: <code>/api/metrics/summary{query({ repo: props.repoId })}</code>
         </p>
       )}

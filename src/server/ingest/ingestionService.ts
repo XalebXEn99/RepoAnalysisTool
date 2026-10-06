@@ -39,7 +39,10 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
 
   // ---- stage 1: obtain a working copy that contains .git -------------------
   let repoPath = repo.path;
-  if (repo.source_type === 'zip') {
+  if (repo.source_type === 'local') {
+    // Working copy already on disk (used by tests and local-path ingestion).
+    handle.update('prepare', 0.05, 'using existing working copy');
+  } else if (repo.source_type === 'zip') {
     handle.update('extract', 0.05, 'extracting uploaded zip');
     const zipPath = repo.source_url;
     if (!zipPath || !fs.existsSync(zipPath)) throw new Error('uploaded zip is missing');

@@ -59,7 +59,7 @@ export default function App() {
     <Layout page={page} onNavigate={setPage}>
       {fatal && (
         <section className="panel">
-          <p className="error-text">cannot reach the RAT server: {fatal}</p>
+          <p className="error-text">Cannot reach the RAT server: {fatal}</p>
         </section>
       )}
       {page === 'dashboard' && (
@@ -88,6 +88,7 @@ export default function App() {
           onDone={(id) => {
             refresh();
             setRepoId(id);
+            setPage('repositories');
           }}
         />
       )}

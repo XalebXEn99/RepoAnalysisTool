@@ -52,43 +52,45 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="spread">
-          <h2>Select commits (manual commit set H)</h2>
+          <h2>Select Commits</h2>
           <button className="secondary" onClick={props.onClose}>
-            close
+            ✕ close
           </button>
         </div>
         {error && <p className="error-text">{error}</p>}
         <p className="muted">Most recent 300 non-merge commits. Leave empty to use the whole history / date range.</p>
-        <table className="grid">
-          <thead>
-            <tr>
-              <th></th>
-              <th>commit</th>
-              <th>author</th>
-              <th>date</th>
-              <th>subject</th>
-            </tr>
-          </thead>
-          <tbody>
-            {commits.map((c) => (
-              <tr key={c.hash} className="clickable" onClick={() => toggle(c.hash)}>
-                <td>
-                  <input type="checkbox" checked={picked.has(c.hash)} readOnly />
-                </td>
-                <td>{c.shortHash}</td>
-                <td>{c.authorName}</td>
-                <td>{new Date(c.committerDate * 1000).toISOString().slice(0, 10)}</td>
-                <td>{c.subject}</td>
+        <div className="table-container" style={{ maxHeight: '45vh' }}>
+          <table className="grid">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Commit</th>
+                <th>Author</th>
+                <th>Date</th>
+                <th>Subject</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="row" style={{ marginTop: 12 }}>
+            </thead>
+            <tbody>
+              {commits.map((c) => (
+                <tr key={c.hash} className="clickable" onClick={() => toggle(c.hash)}>
+                  <td>
+                    <input type="checkbox" checked={picked.has(c.hash)} readOnly />
+                  </td>
+                  <td><code>{c.shortHash}</code></td>
+                  <td>{c.authorName}</td>
+                  <td>{new Date(c.committerDate * 1000).toISOString().slice(0, 10)}</td>
+                  <td>{c.subject}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="row" style={{ marginTop: 14 }}>
           <button className="primary" onClick={() => props.onApply([...picked])}>
-            apply {picked.size > 0 ? `(${picked.size})` : ''}
+            Apply {picked.size > 0 ? `(${picked.size} selected)` : ''}
           </button>
           <button className="secondary" onClick={() => props.onApply([])}>
-            clear selection
+            Clear selection
           </button>
         </div>
       </div>
@@ -107,12 +109,13 @@ export function FilterBar(props: {
   const [pickerOpen, setPickerOpen] = useState(false);
   const f = props.filters;
   const set = (patch: Partial<UiFilters>) => props.onFiltersChange({ ...f, ...patch });
+  const hasFilters = f.authorId || f.path || f.from || f.to || f.commits.length > 0;
 
   return (
-    <section className="panel">
+    <section className="panel" style={{ padding: 0, overflow: 'hidden' }}>
       <div className="filterbar">
         <label>
-          repository
+          Specimen (Repo)
           <select
             value={props.repoId ?? ''}
             onChange={(e) => props.onRepoChange(Number(e.target.value))}
@@ -126,9 +129,9 @@ export function FilterBar(props: {
           </select>
         </label>
         <label>
-          author
+          Subject (Author)
           <select value={f.authorId ?? ''} onChange={(e) => set({ authorId: e.target.value ? Number(e.target.value) : undefined })}>
-            <option value="">all authors</option>
+            <option value="">All subjects</option>
             {props.authors
               .filter((a) => a.canonicalId === a.id)
               .map((a) => (
@@ -139,15 +142,15 @@ export function FilterBar(props: {
           </select>
         </label>
         <label>
-          from (inclusive)
+          From
           <input type="date" value={f.from} onChange={(e) => set({ from: e.target.value })} />
         </label>
         <label>
-          to (inclusive)
+          To
           <input type="date" value={f.to} onChange={(e) => set({ to: e.target.value })} />
         </label>
         <label>
-          object path
+          Path
           <input
             type="text"
             placeholder="(whole repository)"
@@ -155,15 +158,19 @@ export function FilterBar(props: {
             onChange={(e) => set({ path: e.target.value })}
           />
         </label>
-        <button className="secondary" onClick={() => setPickerOpen(true)} disabled={!props.repoId}>
-          commits {f.commits.length > 0 ? `(${f.commits.length})` : ''}
-        </button>
-        <button
-          className="secondary"
-          onClick={() => props.onFiltersChange({ ...emptyFilters })}
-        >
-          reset
-        </button>
+        <div className="filter-actions">
+          <button className="secondary" onClick={() => setPickerOpen(true)} disabled={!props.repoId}>
+            🧬 Commits {f.commits.length > 0 ? `(${f.commits.length})` : ''}
+          </button>
+          {hasFilters && (
+            <button
+              className="secondary"
+              onClick={() => props.onFiltersChange({ ...emptyFilters })}
+            >
+              ↺ Reset
+            </button>
+          )}
+        </div>
       </div>
       {pickerOpen && props.repoId && (
         <CommitPicker

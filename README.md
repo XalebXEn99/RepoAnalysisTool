@@ -48,11 +48,23 @@ npm run build        # compiles server to dist/server and client to dist/client
 npm start            # Express serves the API and the built client on :8787
 ```
 
-Tests (Vitest; suites are added after the MVP milestone):
+Tests (Vitest, 61 tests across 4 suites):
 
 ```bash
-npm test
+npm test             # or: npx vitest run tests/unit/metrics.test.ts
+npm run test:watch
 ```
+
+| Suite | Covers |
+| --- | --- |
+| `tests/unit/gitLogParser.test.ts` | `git log --numstat -z` byte protocol: merges, renames, deletions, binary, spaced paths |
+| `tests/unit/ingest.test.ts` | pipeline stages, materialised ancestor rollup, mailmap grouping, zip ingestion |
+| `tests/unit/metrics.test.ts` | every metric family and filter from the brief, against hand-computed values |
+| `tests/unit/api.test.ts` | all HTTP routes on an ephemeral port, filter parameters and error contracts |
+
+Tests build a throwaway git fixture (`tests/helpers/fixture.ts`) with deterministic dates and run
+against an isolated scratch database, so they never touch `data/rat.db`. They shell out to `git`
+and `zip`, both of which must be on `PATH`.
 
 ### Where data lives
 
@@ -62,6 +74,7 @@ Everything is local to the machine — nothing is uploaded anywhere and no exter
 data/rat.db            SQLite database (repositories, authors, commits, objects, changes, jobs)
 data/repos/<id>/       working copy of each ingested repository (clone or unzipped upload)
 data/uploads/          transient zip uploads (deleted after extraction)
+data/test-tmp/         scratch fixtures and databases created by `npm test`
 ```
 
 `data/` is gitignored, so a fresh clone of this repository starts empty.
@@ -70,9 +83,9 @@ data/uploads/          transient zip uploads (deleted after extraction)
 
 ```text
 src/shared/      API contract types shared by client and server
-src/server/      Express API: db/, ingest/, metrics/, jobs/, routes/
-src/client/      React + Vite dashboard: api/, components/, pages/, styles/
-tests/           Vitest suites and fixtures
+src/server/      Express API: app.ts, db/, ingest/, metrics/, jobs/, routes/
+src/client/      React + Vite dashboard: lib/, components/, pages/, styles/
+tests/           Vitest suites and the deterministic git fixture
 docs/            architecture, database, usage and dependency documentation
 ```
 

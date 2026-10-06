@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { RatWheelLoader } from '../components/RatWheelLoader';
 
 export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
   const [url, setUrl] = useState('');
@@ -15,7 +16,7 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
     setMessage('');
     try {
       const res = await api.cloneRepo(url);
-      setMessage(`clone queued (repository #${res.repositoryId}). Watch progress under Repositories.`);
+      setMessage(`Clone queued (specimen #${res.repositoryId}). Watch progress under Repositories.`);
       setUrl('');
       props.onDone(res.repositoryId);
     } catch (err) {
@@ -32,7 +33,7 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
     setMessage('');
     try {
       const res = await api.uploadRepo(file);
-      setMessage(`upload queued (repository #${res.repositoryId}). Watch progress under Repositories.`);
+      setMessage(`Upload queued (specimen #${res.repositoryId}). Watch progress under Repositories.`);
       setFile(null);
       if (fileInput.current) fileInput.current.value = '';
       props.onDone(res.repositoryId);
@@ -45,36 +46,54 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
 
   return (
     <>
-      <h1>Add repository</h1>
+      <h1>🧬 New Specimen</h1>
+
+      {busy && <RatWheelLoader label="Preparing intake…" />}
+
       <section className="panel">
-        <h2>Clone from remote URL</h2>
-        <p className="muted">The repository is deeply cloned (full history) into local storage.</p>
+        <h2>Clone from URL</h2>
+        <p className="muted" style={{ fontSize: 12 }}>Full history clone into local storage.</p>
         <div className="row">
           <input
             type="text"
-            style={{ minWidth: 380, padding: '8px', border: '1px solid var(--line)', borderRadius: 6 }}
-            placeholder="https://github.com/DaveGamble/cJSON.git"
+            style={{
+              flex: 1,
+              minWidth: 300,
+              padding: '10px 12px',
+              border: '1px solid var(--line)',
+              borderRadius: 8,
+              fontSize: 13,
+            }}
+            placeholder="https://github.com/mrdoob/three.js.git"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
           <button className="primary" disabled={busy || !url.trim()} onClick={submitClone}>
-            clone &amp; analyse
+            Clone &amp; Analyse
           </button>
         </div>
       </section>
+
       <section className="panel">
-        <h2>Upload zip</h2>
-        <p className="muted">The zip must contain the repository including its .git directory.</p>
+        <h2>Upload Zip</h2>
+        <p className="muted" style={{ fontSize: 12 }}>The zip must contain the repository including its .git directory.</p>
         <div className="row">
-          <input type="file" accept=".zip,application/zip" ref={fileInput} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            ref={fileInput}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            style={{ fontSize: 13 }}
+          />
           <button className="primary" disabled={busy || !file} onClick={submitUpload}>
-            upload &amp; analyse
+            Upload &amp; Analyse
           </button>
         </div>
       </section>
+
       {message && (
         <section className="panel">
-          <p>{message}</p>
+          <p style={{ color: 'var(--ok)', fontWeight: 500 }}>{message}</p>
         </section>
       )}
       {error && (

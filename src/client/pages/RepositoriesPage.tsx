@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { num } from '../components/MetricBits';
+import { RatWheelLoader } from '../components/RatWheelLoader';
 import type { JobInfo, RepositorySummary } from '../../shared/types';
 
 export function RepositoriesPage(props: {
@@ -45,28 +46,31 @@ export function RepositoriesPage(props: {
     }
   };
 
+  const anyIngesting = props.repos.some((r) => r.status === 'ingesting' || r.status === 'pending');
+
   return (
     <>
       <div className="spread">
-        <h1>Repositories</h1>
+        <h1>🧪 Specimens</h1>
         <button className="primary" onClick={props.onAdd}>
-          add repository
+          + Add repository
         </button>
       </div>
       {error && <p className="error-text">{error}</p>}
+      {anyIngesting && <RatWheelLoader label="Ingesting specimen…" />}
       <section className="panel">
         {props.repos.length === 0 ? (
-          <p className="muted">Nothing ingested yet.</p>
+          <p className="muted">No specimens ingested yet. Click "+ Add repository" to begin.</p>
         ) : (
           <table className="grid">
             <thead>
               <tr>
-                <th>name</th>
-                <th>source</th>
-                <th>status</th>
-                <th className="num">commits</th>
-                <th>head</th>
-                <th>progress</th>
+                <th>Name</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th className="num">Commits</th>
+                <th>Head</th>
+                <th>Progress</th>
                 <th></th>
               </tr>
             </thead>
@@ -74,24 +78,28 @@ export function RepositoriesPage(props: {
               {props.repos.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <button className="secondary" style={{ border: 0, padding: 0, background: 'none', color: 'var(--accent)' }} onClick={() => props.onSelect(r.id)}>
+                    <button
+                      className="secondary"
+                      style={{ border: 0, padding: 0, background: 'none', color: 'var(--accent)', fontWeight: 500 }}
+                      onClick={() => props.onSelect(r.id)}
+                    >
                       {r.name}
                     </button>
                   </td>
-                  <td className="muted">{r.sourceType === 'zip' ? 'zip upload' : r.sourceUrl}</td>
+                  <td className="muted" style={{ fontSize: 12 }}>{r.sourceType === 'zip' ? 'zip upload' : r.sourceUrl}</td>
                   <td>
                     <span className={`badge ${r.status}`}>{r.status}</span>
-                    {r.error ? <div className="error-text">{r.error}</div> : null}
+                    {r.error ? <div className="error-text" style={{ fontSize: 11 }}>{r.error}</div> : null}
                   </td>
                   <td className="num">{num(r.commitCount)}</td>
-                  <td className="muted">{r.headCommit?.slice(0, 8) ?? '—'}</td>
+                  <td className="muted"><code>{r.headCommit?.slice(0, 8) ?? '—'}</code></td>
                   <td>
                     {jobs[r.id] ? (
                       <>
                         <div className="progress">
                           <div style={{ width: `${Math.round(jobs[r.id].progress * 100)}%` }} />
                         </div>
-                        <span className="muted">
+                        <span className="muted" style={{ fontSize: 11 }}>
                           {jobs[r.id].stage}: {jobs[r.id].message}
                         </span>
                       </>

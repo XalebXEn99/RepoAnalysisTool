@@ -4,7 +4,7 @@
  *   added      = l+   removed = l-   growth = delta = l+ - l-   churn = lambda = l+ + l-
  */
 
-export type RepoSourceType = 'clone' | 'zip';
+export type RepoSourceType = 'clone' | 'zip' | 'local';
 export type RepoStatus = 'pending' | 'ingesting' | 'ready' | 'error';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 export type ObjectKind = 'file' | 'dir';

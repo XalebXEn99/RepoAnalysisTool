@@ -9,6 +9,7 @@ import {
   getObjectMetrics,
 } from '../metrics/queryEngine';
 import type { MetricFilters, ObjectKind } from '../../shared/types';
+import { toSummary } from './mappers';
 
 export const metricsRouter = Router();
 
@@ -54,7 +55,7 @@ metricsRouter.get('/summary', (req: Request, res: Response) => {
   if (!repository) return res.status(404).json({ error: 'repository not found' });
   const root = getObjectMetrics(filters, '');
   res.json({
-    repository,
+    repository: toSummary(repository),
     root:
       root ?? {
         path: '',
