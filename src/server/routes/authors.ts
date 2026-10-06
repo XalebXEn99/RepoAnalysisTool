@@ -9,7 +9,7 @@ authorsRouter.get('/:id/authors', (req: Request, res: Response) => {
 });
 
 /**
- * Manual author merge (test_brief.md §1): fold the selected author rows and
+ * Manual author merge (docs/test_brief.md §1): fold the selected author rows and
  * their existing groups into the target's canonical identity. Metrics pick
  * this up immediately because every aggregation joins on canonical_id.
  */

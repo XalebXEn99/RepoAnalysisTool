@@ -58,7 +58,7 @@ export const GIT_LOG_PRETTY = `format:${String.fromCharCode(SENTINEL)}%H%x00%an%
 export function gitLogArgs(): string[] {
   return [
     'log',
-    '--no-merges', // H-bar excludes merge commits (test_brief.md §2)
+    '--no-merges', // H-bar excludes merge commits (docs/test_brief.md §2)
     '--numstat',
     `-M${RENAME_THRESHOLD}`, // rename detection at 50%
     '-z', // unquoted, NUL separated paths: the only unambiguous format

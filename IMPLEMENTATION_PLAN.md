@@ -1,9 +1,8 @@
 # Repo Analysis Tool (RAT) — Implementation Plan
 
 > **Status:** living document. Updated as implementation progresses.
-> **Sources of truth:** [`test_brief.pdf`](./test_brief.pdf) and its faithful extraction
-> [`test_brief.md`](./test_brief.md). Documentation conventions follow
-> [`ai_policy.pdf`](./ai_policy.pdf).
+> **Sources of truth:** [`docs/test_brief.md`](./docs/test_brief.md), the faithful LaTeX-preserving
+> extraction of the assignment brief. Documentation conventions follow the course AI policy.
 
 ---
 
@@ -62,7 +61,7 @@ data/                  # gitignored, created at runtime
 
 ## 3. Metric semantics (as implemented)
 
-All definitions are taken from [`test_brief.md`](./test_brief.md) §2. Implementation notes that are
+All definitions are taken from [`docs/test_brief.md`](./docs/test_brief.md) §2. Implementation notes that are
 not obvious from the formulae:
 
 - **Commit universe.** $\bar{H}$ = non-merge commits reachable from the reference commit (HEAD by
@@ -166,11 +165,8 @@ All metric endpoints accept the same filter set: `repo`, `author`, `path`, `from
 
 ```text
 RepoAnalysisTool/
-├── ai_policy.pdf                 # source of truth (policy)
-├── test_brief.pdf                # source of truth (metrics)
-├── test_brief.md                 # extracted brief with LaTeX
 ├── IMPLEMENTATION_PLAN.md        # this document
-├── README.md                     # living doc + AI declarations (policy §Code)
+├── README.md                     # run instructions + AI declarations (policy §Code)
 ├── package.json / tsconfig*.json / vite.config.ts
 ├── data/                         # runtime-only, gitignored
 ├── src/
@@ -196,7 +192,7 @@ RepoAnalysisTool/
 │       ├── pages/                # Dashboard, Repositories, AddRepo, Authors, Commits
 │       └── styles/global.css     # clean minimal styling
 ├── tests/                        # vitest suites (written after MVP)
-└── docs/                         # architecture/mermaid/usage/db docs (added last)
+└── docs/test_brief.md            # source of truth: the brief, LaTeX preserved
 ```
 
 ---
@@ -205,7 +201,7 @@ RepoAnalysisTool/
 
 | # | Phase | Exit criteria |
 | --- | --- | --- |
-| 1 | Extraction & scaffold | `test_brief.md` faithful; deps installed; dev servers boot. |
+| 1 | Extraction & scaffold | `docs/test_brief.md` faithful; deps installed; dev servers boot. |
 | 2 | Storage & ingestion | Clone URL and zip both produce a populated DB; job progress visible. |
 | 3 | Metric engine | All five metric families returned by the API; values match ground-truth `git log --numstat` on a synthetic repo (renames, deletes, binary, merges, mailmap). |
 | 4 | Dashboard UI | Repo/author/object/commit-set filters wired; tables + charts render. |
@@ -232,5 +228,5 @@ RepoAnalysisTool/
 ---
 
 *This document was planned and generated with the assistance of: Qoder (model identifier withheld by
-the tooling — see [`README.md`](./README.md) for the repository-level AI declaration required by
-[`ai_policy.pdf`](./ai_policy.pdf)).*
+the tooling — see [`README.md`](./README.md) for the repository-level AI declaration required by the
+course AI policy).*

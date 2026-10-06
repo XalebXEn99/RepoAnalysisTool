@@ -16,7 +16,7 @@ export function runGit(repoPath: string, args: string[]): string {
   return res.stdout.toString('utf8');
 }
 
-/** Deep clone (full history) of a remote repository, per test_brief.md §1. */
+/** Deep clone (full history) of a remote repository, per docs/test_brief.md §1. */
 export function cloneRepository(url: string, dest: string): void {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   const res = spawnSync('git', ['clone', '--', url, dest], {
@@ -34,7 +34,7 @@ export async function extractRepositoryZip(zipPath: string, dest: string): Promi
   await extractZip(zipPath, { dir: dest });
 }
 
-/** A repository zip must ship its .git (test_brief.md §1). */
+/** A repository zip must ship its .git (docs/test_brief.md §1). */
 export function hasGitDir(dir: string): boolean {
   return fs.existsSync(path.join(dir, '.git'));
 }

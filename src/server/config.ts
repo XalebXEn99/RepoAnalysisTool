@@ -16,7 +16,7 @@ export const CLIENT_DIST = path.join(ROOT, 'dist', 'client');
 
 export const PORT = Number(process.env.RAT_PORT ?? 8787);
 
-/** Rename detection threshold demanded by the brief (test_brief.md §2). */
+/** Rename detection threshold demanded by the brief (docs/test_brief.md §2). */
 export const RENAME_THRESHOLD = '50%';
 
 export function ensureDataDirs(): void {

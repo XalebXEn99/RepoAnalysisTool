@@ -11,7 +11,7 @@ import type {
 } from '../../shared/types';
 
 /**
- * Metric evaluation over a commit set H (test_brief.md §2).
+ * Metric evaluation over a commit set H (docs/test_brief.md §2).
  *
  * Semantics implemented here:
  *  - H is restricted by repository + committer-date range (H_t / H_{i,j})

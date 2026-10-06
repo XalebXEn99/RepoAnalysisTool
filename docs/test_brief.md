@@ -1,10 +1,11 @@
 # COMS3011A Test — Repo Analysis Tool (RAT) Brief
 
-> **Extraction note.** This Markdown file is a faithful extraction of [`test_brief.pdf`](./test_brief.pdf)
-> (University of the Witwatersrand, COMS3011A Test, Brendan Griffiths). The PDF and this file are the
-> **primary source of truth** for this project. All mathematical formulae are preserved as LaTeX.
-> Where the PDF's visual layout (fractions, cases, sub/superscripts) could not survive plain-text
-> extraction, the formulae were re-typeset from a rendered view of the PDF and verified by hand.
+> **Extraction note.** This Markdown file is a faithful extraction of the original `test_brief.pdf`
+> (University of the Witwatersrand, COMS3011A Test, Brendan Griffiths), which is not bundled with this
+> repository. It is the **primary source of truth** for this project. All mathematical formulae are
+> preserved as LaTeX. Where the PDF's visual layout (fractions, cases, sub/superscripts) could not
+> survive plain-text extraction, the formulae were re-typeset from a rendered view of the PDF and
+> verified by hand.
 
 ---
 

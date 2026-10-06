@@ -198,7 +198,7 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
     }
     return id;
   };
-  ensureObject('', 'dir'); // the repository root (test_brief.md §2.2)
+  ensureObject('', 'dir'); // the repository root (docs/test_brief.md §2.2)
 
   /** Ids of the file object plus every ancestor directory, root included. */
   const ancestorChainCache = new Map<string, number[]>();

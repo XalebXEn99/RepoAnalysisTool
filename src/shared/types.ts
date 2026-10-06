@@ -1,6 +1,6 @@
 /**
  * Shared API contract between the Express backend and the React client.
- * Metric naming follows test_brief.md section 2 exactly:
+ * Metric naming follows docs/test_brief.md section 2 exactly:
  *   added      = l+   removed = l-   growth = delta = l+ - l-   churn = lambda = l+ + l-
  */
 

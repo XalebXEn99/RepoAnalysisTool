@@ -19,7 +19,7 @@ export function parseIdent(line: string): AuthorIdent | null {
 
 /**
  * Resolves raw author identities through the repository's .mailmap using
- * git's own `check-mailmap` (test_brief.md §1: "git provides a .mailmap to
+ * git's own `check-mailmap` (docs/test_brief.md §1: "git provides a .mailmap to
  * merge different email addresses"). Returns a map from raw ident string to
  * canonical ident; identities absent from the mailmap map to themselves.
  */
