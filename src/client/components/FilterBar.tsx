@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, query } from '../api/client';
+import { api, query } from '../lib/api';
 import type { AuthorInfo, CommitInfo, RepositorySummary } from '../../shared/types';
 
 /** Client-side filter model mirroring the brief's four filter dimensions. */

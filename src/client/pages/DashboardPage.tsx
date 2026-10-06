@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, query } from '../api/client';
+import { api, query } from '../lib/api';
 import { FilterBar, filtersToQuery, type UiFilters } from '../components/FilterBar';
 import {
   AuthorOwnershipTable,

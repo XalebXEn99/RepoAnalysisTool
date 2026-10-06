@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { api } from '../lib/api';
 import { num } from '../components/MetricBits';
 import type { JobInfo, RepositorySummary } from '../../shared/types';
 

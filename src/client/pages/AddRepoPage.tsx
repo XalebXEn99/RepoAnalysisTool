@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api } from '../lib/api';
 
 export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
   const [url, setUrl] = useState('');

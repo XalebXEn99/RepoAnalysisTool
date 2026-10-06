@@ -189,7 +189,8 @@ RepoAnalysisTool/
 │   │   └── routes/*.ts           # repos / authors / metrics / commits
 │   └── client/
 │       ├── index.html, main.tsx, App.tsx
-│       ├── api/client.ts         # typed fetch wrapper
+│       ├── lib/api.ts            # typed fetch wrapper (dir is lib/, not api/:
+│       │                         # the dev proxy owns the /api URL prefix)
 │       ├── components/           # Layout, FilterBar, MetricCard, MetricTable,
 │       │                         # AuthorTable, ChurnChart
 │       ├── pages/                # Dashboard, Repositories, AddRepo, Authors, Commits

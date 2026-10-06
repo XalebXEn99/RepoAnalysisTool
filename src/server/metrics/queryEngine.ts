@@ -69,11 +69,12 @@ interface RawAgg {
   kind: ObjectKind;
   added: number;
   removed: number;
+  churn: number;
   modifications: number;
 }
 
 function toObjectMetrics(raw: RawAgg, setSize: number): ObjectMetrics {
-  const churn = raw.added + raw.removed;
+  const churn = raw.churn;
   return {
     path: raw.path,
     kind: raw.kind,
@@ -92,6 +93,7 @@ const AGG_SELECT = `
   SELECT o.path AS path, o.kind AS kind,
          COALESCE(SUM(ch.added), 0)   AS added,
          COALESCE(SUM(ch.removed), 0) AS removed,
+         COALESCE(SUM(ch.added + ch.removed), 0) AS churn,
          COUNT(DISTINCT c.id)         AS modifications
   FROM changes ch
   JOIN commits c ON c.id = ch.commit_id
@@ -154,7 +156,7 @@ export function listTop(
       `${AGG_SELECT}
        WHERE ch.repository_id = ? AND o.repository_id = ? AND o.kind = ? AND o.path != '' AND ${p.sql}
        GROUP BY o.id
-       ORDER BY ${order} DESC
+       ORDER BY ${order} DESC, o.path ASC
        LIMIT ?`,
     )
     .all(filters.repoId, filters.repoId, kind, ...p.params, limit) as RawAgg[];

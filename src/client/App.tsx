@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from './api/client';
+import { api } from './lib/api';
 import { Layout, type PageId } from './components/Layout';
 import { emptyFilters, type UiFilters } from './components/FilterBar';
 import { DashboardPage } from './pages/DashboardPage';
