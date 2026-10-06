@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Runtime storage: cloned/unzipped repositories and the local SQLite database.
+# Everything the app stores is local to the machine by design (see docs/).
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Uploads in flight
+tmp/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+*.log
