@@ -48,7 +48,7 @@ npm run build        # compiles server to dist/server and client to dist/client
 npm start            # Express serves the API and the built client on :8787
 ```
 
-Tests (Vitest, 61 tests across 4 suites):
+Tests (Vitest, 86 tests across 5 suites):
 
 ```bash
 npm test             # or: npx vitest run tests/unit/metrics.test.ts
@@ -61,6 +61,7 @@ npm run test:watch
 | `tests/unit/ingest.test.ts` | pipeline stages, materialised ancestor rollup, mailmap grouping, zip ingestion |
 | `tests/unit/metrics.test.ts` | every metric family and filter from the brief, against hand-computed values |
 | `tests/unit/api.test.ts` | all HTTP routes on an ephemeral port, filter parameters and error contracts |
+| `tests/unit/edgeCases.test.ts` | pathological repositories: no commits, file-less commits, binary-only history, awkward paths, a file that becomes a directory, re-ingestion, cascade deletion, `PRAGMA integrity_check` |
 
 Tests build a throwaway git fixture (`tests/helpers/fixture.ts`) with deterministic dates and run
 against an isolated scratch database, so they never touch `data/rat.db`. They shell out to `git`

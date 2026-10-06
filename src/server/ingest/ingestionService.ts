@@ -26,6 +26,66 @@ function yieldToLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** A manual author merge, keyed by identity so that it survives a re-ingest. */
+interface ManualMerge {
+  sourceName: string;
+  sourceEmail: string;
+  targetName: string;
+  targetEmail: string;
+}
+
+function readManualMerges(repoId: number): ManualMerge[] {
+  return db()
+    .prepare(
+      `SELECT s.name AS sourceName, s.email AS sourceEmail, t.name AS targetName, t.email AS targetEmail
+       FROM authors s JOIN authors t ON t.id = s.canonical_id
+       WHERE s.repository_id = ? AND s.merge_source = 'manual' AND s.id <> s.canonical_id`,
+    )
+    .all(repoId) as ManualMerge[];
+}
+
+/**
+ * Drops every row derived from a previous ingest, so re-ingesting a repository
+ * (or retrying one whose ingest was interrupted) replaces the data instead of
+ * duplicating it and tripping UNIQUE(repository_id, hash).
+ */
+function clearIngestedData(repoId: number): void {
+  const database = db();
+  database.transaction(() => {
+    database.prepare('DELETE FROM changes WHERE repository_id = ?').run(repoId);
+    database.prepare('DELETE FROM commits WHERE repository_id = ?').run(repoId);
+    database.prepare('DELETE FROM objects WHERE repository_id = ?').run(repoId);
+    database.prepare('DELETE FROM authors WHERE repository_id = ?').run(repoId);
+    database.prepare('UPDATE repositories SET head_commit = NULL, commit_count = 0 WHERE id = ?').run(repoId);
+  })();
+}
+
+/**
+ * Re-applies the user's manual author merges after the author rows have been
+ * rebuilt. Identities that no longer occur in the history are skipped.
+ */
+function restoreManualMerges(repoId: number, merges: ManualMerge[]): void {
+  if (merges.length === 0) return;
+  const database = db();
+  const findRow = database.prepare(
+    'SELECT id, canonical_id FROM authors WHERE repository_id = ? AND name = ? AND email = ?',
+  );
+  const apply = database.prepare(
+    `UPDATE authors SET canonical_id = ?, merge_source = 'manual'
+     WHERE repository_id = ? AND (id = ? OR canonical_id = ?)`,
+  );
+  database.transaction(() => {
+    for (const merge of merges) {
+      const source = findRow.get(repoId, merge.sourceName, merge.sourceEmail) as { id: number } | undefined;
+      const target = findRow.get(repoId, merge.targetName, merge.targetEmail) as
+        | { id: number; canonical_id: number }
+        | undefined;
+      if (!source || !target || source.id === target.id) continue;
+      apply.run(target.canonical_id, repoId, source.id, source.id);
+    }
+  })();
+}
+
 /**
  * Full ingestion pipeline for one repository:
  *   source (clone | unzip) -> mailmap -> git log parse -> materialised deltas.
@@ -36,6 +96,9 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
   const repo = database.prepare('SELECT * FROM repositories WHERE id = ?').get(repoId) as RepoRow | undefined;
   if (!repo) throw new Error(`repository ${repoId} does not exist`);
   database.prepare(`UPDATE repositories SET status = 'ingesting', error = NULL WHERE id = ?`).run(repoId);
+  // Start from a clean slate; the user's manual merges are carried across.
+  const manualMerges = readManualMerges(repoId);
+  clearIngestedData(repoId);
 
   // ---- stage 1: obtain a working copy that contains .git -------------------
   let repoPath = repo.path;
@@ -106,6 +169,7 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
     setCanonical.run(canonId, rawKey === formatIdent(canonical) ? 'identity' : 'mailmap', rowId);
     authorIdByRaw.set(`${raw.name}\u0000${raw.email}`, rowId);
   }
+  restoreManualMerges(repoId, manualMerges);
 
   // ---- stage 3: history -> commits, objects, changes ----------------------
   handle.update('history', 0.2, 'reading git history (git log --numstat)');
@@ -116,12 +180,22 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
   const objectIdByPath = new Map<string, number>();
   const findObject = database.prepare('SELECT id FROM objects WHERE repository_id = ? AND path = ?');
   const insertObject = database.prepare('INSERT INTO objects (repository_id, path, kind) VALUES (?, ?, ?)');
+  const promoteToDir = database.prepare(`UPDATE objects SET kind = 'dir' WHERE id = ? AND kind <> 'dir'`);
+  const knownDirs = new Set<number>();
   const ensureObject = (objectPath: string, kind: 'file' | 'dir'): number => {
-    const cached = objectIdByPath.get(objectPath);
-    if (cached !== undefined) return cached;
-    const existing = findObject.get(repoId, objectPath) as { id: number } | undefined;
-    const id = existing ? existing.id : Number(insertObject.run(repoId, objectPath, kind).lastInsertRowid);
-    objectIdByPath.set(objectPath, id);
+    let id = objectIdByPath.get(objectPath);
+    if (id === undefined) {
+      const existing = findObject.get(repoId, objectPath) as { id: number } | undefined;
+      id = existing ? existing.id : Number(insertObject.run(repoId, objectPath, kind).lastInsertRowid);
+      objectIdByPath.set(objectPath, id);
+    }
+    // A path can be a file in one commit and a directory in a later one (or the
+    // other way round). Directories win so the path stays browsable; a kind is
+    // never demoted, because the file rows are what carry the deltas.
+    if (kind === 'dir' && !knownDirs.has(id)) {
+      promoteToDir.run(id);
+      knownDirs.add(id);
+    }
     return id;
   };
   ensureObject('', 'dir'); // the repository root (test_brief.md §2.2)
@@ -195,7 +269,7 @@ export async function ingestRepository(repoId: number, handle: JobHandle): Promi
 
   // ---- stage 4: finalise ---------------------------------------------------
   handle.update('finalise', 0.97, 'finalising');
-  const head = headCommit(repoPath);
+  const head = headCommit(repoPath); // null for a repository without commits
   const count = database.prepare('SELECT COUNT(*) AS n FROM commits WHERE repository_id = ?').get(repoId) as { n: number };
   database
     .prepare(

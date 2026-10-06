@@ -148,7 +148,7 @@ export function listChildren(filters: MetricFilters, dirPath: string, limit = 50
          AND o.path LIKE ? ESCAPE '\\' AND o.path NOT LIKE ? ESCAPE '\\'
          AND ${p.sql}
        GROUP BY o.id
-       ORDER BY (COALESCE(SUM(ch.added),0) + COALESCE(SUM(ch.removed),0)) DESC
+       ORDER BY (COALESCE(SUM(ch.added),0) + COALESCE(SUM(ch.removed),0)) DESC, o.path ASC
        LIMIT ?`,
     )
     .all(
@@ -201,7 +201,7 @@ export function listAuthorsForObject(filters: MetricFilters, objectPath: string)
        JOIN authors ca ON ca.id = a.canonical_id
        WHERE ch.repository_id = ? AND o.repository_id = ? AND o.path = ? AND ${p.sql}
        GROUP BY ca.id
-       ORDER BY churn DESC`,
+       ORDER BY churn DESC, ca.name ASC, ca.id ASC`,
     )
     .all(filters.repoId, filters.repoId, objectPath, ...p.params) as Array<{
     authorId: number;
@@ -255,6 +255,11 @@ export function getTimeline(filters: MetricFilters, objectPath: string): Timelin
   });
 }
 
+/**
+ * Commits of H, newest first. Rows are inserted in the order git reported them,
+ * so breaking a committer-date tie on id keeps that order instead of letting
+ * SQLite reshuffle equal timestamps between identical queries.
+ */
 export function listCommits(filters: MetricFilters, limit = 200): CommitInfo[] {
   const p = commitPredicate(filters, false);
   const rows = db()
@@ -265,7 +270,7 @@ export function listCommits(filters: MetricFilters, limit = 200): CommitInfo[] {
        JOIN authors a  ON a.id = c.author_id
        JOIN authors ca ON ca.id = a.canonical_id
        WHERE ${p.sql}
-       ORDER BY c.committer_date DESC
+       ORDER BY c.committer_date DESC, c.id ASC
        LIMIT ?`,
     )
     .all(...p.params, limit) as Array<{

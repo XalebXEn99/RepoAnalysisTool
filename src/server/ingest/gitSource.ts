@@ -53,8 +53,17 @@ export function locateRepoRoot(extractDir: string): string | null {
   return null;
 }
 
-export function headCommit(repoPath: string): string {
-  return runGit(repoPath, ['rev-parse', 'HEAD']).trim();
+/**
+ * HEAD of the working copy, or null when the repository has no commits yet
+ * (an unborn HEAD is a valid, empty repository rather than an error).
+ */
+export function headCommit(repoPath: string): string | null {
+  const res = spawnSync('git', ['-C', repoPath, 'rev-parse', '--verify', '-q', 'HEAD'], {
+    env: { ...process.env, GIT_PAGER: 'cat', LC_ALL: 'C' },
+  });
+  if (res.error) throw res.error;
+  if (res.status !== 0) return null;
+  return res.stdout.toString('utf8').trim() || null;
 }
 
 export function commitSubject(repoPath: string, hash: string): string {
@@ -63,6 +72,7 @@ export function commitSubject(repoPath: string, hash: string): string {
 
 /** Distinct raw author identities over H-bar (non-merge commits). */
 export function listAuthorIdents(repoPath: string): AuthorIdent[] {
+  if (headCommit(repoPath) === null) return []; // no history to attribute
   const out = runGit(repoPath, ['log', '--no-merges', '--pretty=format:%an%x00%ae%x01']);
   const seen = new Set<string>();
   const idents: AuthorIdent[] = [];
