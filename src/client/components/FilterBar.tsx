@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, query } from '../lib/api';
-import type { AuthorInfo, CommitInfo, RepositorySummary } from '../../shared/types';
+import type { AuthorInfo, CommitInfo } from '../../shared/types';
 
 /** Client-side filter model mirroring the brief's four filter dimensions. */
 export interface UiFilters {
@@ -99,11 +99,9 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
 }
 
 export function FilterBar(props: {
-  repos: RepositorySummary[];
   repoId: number | undefined;
   authors: AuthorInfo[];
   filters: UiFilters;
-  onRepoChange: (id: number) => void;
   onFiltersChange: (filters: UiFilters) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -114,20 +112,6 @@ export function FilterBar(props: {
   return (
     <section className="panel" style={{ padding: 0, overflow: 'hidden' }}>
       <div className="filterbar">
-        <label>
-          Specimen (Repo)
-          <select
-            value={props.repoId ?? ''}
-            onChange={(e) => props.onRepoChange(Number(e.target.value))}
-          >
-            <option value="">— select —</option>
-            {props.repos.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} {r.status !== 'ready' ? `(${r.status})` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           Subject (Author)
           <select value={f.authorId ?? ''} onChange={(e) => set({ authorId: e.target.value ? Number(e.target.value) : undefined })}>
@@ -160,7 +144,7 @@ export function FilterBar(props: {
         </label>
         <div className="filter-actions">
           <button className="secondary" onClick={() => setPickerOpen(true)} disabled={!props.repoId}>
-            🧬 Commits {f.commits.length > 0 ? `(${f.commits.length})` : ''}
+            Commits {f.commits.length > 0 ? `(${f.commits.length})` : ''}
           </button>
           {hasFilters && (
             <button

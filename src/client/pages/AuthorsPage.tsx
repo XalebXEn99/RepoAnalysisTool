@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { num } from '../components/MetricBits';
 import { RatWheelLoader } from '../components/RatWheelLoader';
-import waterBottle from '../assets/water-bottle.png';
 import type { AuthorInfo, RepositorySummary } from '../../shared/types';
 
 const PAGE_SIZE = 20;
@@ -53,11 +52,11 @@ export function AuthorsPage(props: {
 
   return (
     <>
-      <h1>🐀 Subjects &amp; Merging</h1>
+      <h1>Subjects &amp; Merging</h1>
       <section className="panel">
         <div className="row">
-          <label className="muted" style={{ fontSize: 12, fontWeight: 600 }}>Specimen:</label>
-          <select value={props.repoId ?? ''} onChange={(e) => props.onRepoChange(Number(e.target.value))}>
+          <label className="field-label" htmlFor="authors-repository">Specimen:</label>
+          <select id="authors-repository" value={props.repoId ?? ''} onChange={(e) => props.onRepoChange(Number(e.target.value))}>
             <option value="">— select —</option>
             {props.repos.map((r) => (
               <option key={r.id} value={r.id}>
@@ -69,14 +68,14 @@ export function AuthorsPage(props: {
             Merge {selected.size > 0 ? `${selected.size} ` : ''}into target
           </button>
         </div>
-        <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        <p className="muted text-small">
           Identities are pre-merged through .mailmap. Tick rows to merge, choose a target with the radio button.
         </p>
         {error && <p className="error-text">{error}</p>}
-        {notice && <p style={{ color: 'var(--ok)', fontWeight: 500 }}>{notice}</p>}
+        {notice && <p className="success-text">{notice}</p>}
       </section>
 
-      {loading && <RatWheelLoader label="Loading subjects…" />}
+      {loading && <RatWheelLoader />}
 
       {!loading && authors.length === 0 && props.repoId && (
         <section className="panel"><p className="muted">No subjects found.</p></section>
@@ -85,7 +84,7 @@ export function AuthorsPage(props: {
       {!loading && authors.length > 0 && (
         <section className="panel">
           <div className="spread" style={{ marginBottom: 12 }}>
-            <span className="muted" style={{ fontSize: 12 }}>{authors.length} total subjects</span>
+            <span className="muted text-small">{authors.length} total subjects</span>
           </div>
           <div className="table-container">
             <table className="grid">
@@ -122,15 +121,14 @@ export function AuthorsPage(props: {
                     <td>
                       <input type="radio" name="merge-target" checked={target === a.id} onChange={() => setTarget(a.id)} />
                     </td>
-                    <td style={{ fontWeight: 500 }}>{a.name}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{a.email}</td>
+                    <td className="text-medium">{a.name}</td>
+                    <td className="muted text-small">{a.email}</td>
                     <td>{a.canonicalName}</td>
                     <td><span className="badge">{a.mergeSource}</span></td>
                     <td className="num">{num(a.commitCount)}</td>
                     <td className="num">{num(a.churn)}</td>
                     <td>
                       <div className="water-bottle-bar">
-                        <img src={waterBottle} alt="" className="bottle-icon" />
                         <div className="bottle-track">
                           <div className="bottle-fill" style={{ width: `${(a.churn / maxChurn) * 100}%` }} />
                         </div>

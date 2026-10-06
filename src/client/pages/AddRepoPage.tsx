@@ -46,24 +46,18 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
 
   return (
     <>
-      <h1>🧬 New Specimen</h1>
+      <h1>New Specimen</h1>
 
-      {busy && <RatWheelLoader label="Preparing intake…" />}
+      {busy && <RatWheelLoader />}
 
       <section className="panel">
         <h2>Clone from URL</h2>
-        <p className="muted" style={{ fontSize: 12 }}>Full history clone into local storage.</p>
+        <p className="muted text-small">Full history clone into local storage.</p>
         <div className="row">
           <input
             type="text"
-            style={{
-              flex: 1,
-              minWidth: 300,
-              padding: '10px 12px',
-              border: '1px solid var(--line)',
-              borderRadius: 8,
-              fontSize: 13,
-            }}
+            className="url-input"
+            aria-label="Repository URL"
             placeholder="https://github.com/mrdoob/three.js.git"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -76,14 +70,14 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
 
       <section className="panel">
         <h2>Upload Zip</h2>
-        <p className="muted" style={{ fontSize: 12 }}>The zip must contain the repository including its .git directory.</p>
+        <p className="muted text-small">The zip must contain the repository including its .git directory.</p>
         <div className="row">
           <input
             type="file"
             accept=".zip,application/zip"
             ref={fileInput}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            style={{ fontSize: 13 }}
+            aria-label="Repository ZIP file"
           />
           <button className="primary" disabled={busy || !file} onClick={submitUpload}>
             Upload &amp; Analyse
@@ -93,7 +87,7 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
 
       {message && (
         <section className="panel">
-          <p style={{ color: 'var(--ok)', fontWeight: 500 }}>{message}</p>
+          <p className="success-text">{message}</p>
         </section>
       )}
       {error && (

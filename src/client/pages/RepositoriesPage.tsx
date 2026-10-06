@@ -51,14 +51,14 @@ export function RepositoriesPage(props: {
   return (
     <>
       <div className="spread">
-        <h1>🧪 Specimens</h1>
+        <h1>Specimens</h1>
         <button className="primary" onClick={props.onAdd}>
           + Add repository
         </button>
       </div>
       {error && <p className="error-text">{error}</p>}
-      {anyIngesting && <RatWheelLoader label="Ingesting specimen…" />}
-      <section className="panel">
+      {anyIngesting && <RatWheelLoader />}
+      <section className="panel repositories-table">
         {props.repos.length === 0 ? (
           <p className="muted">No specimens ingested yet. Click "+ Add repository" to begin.</p>
         ) : (
@@ -79,17 +79,16 @@ export function RepositoriesPage(props: {
                 <tr key={r.id}>
                   <td>
                     <button
-                      className="secondary"
-                      style={{ border: 0, padding: 0, background: 'none', color: 'var(--accent)', fontWeight: 500 }}
+                      className="secondary text-button"
                       onClick={() => props.onSelect(r.id)}
                     >
                       {r.name}
                     </button>
                   </td>
-                  <td className="muted" style={{ fontSize: 12 }}>{r.sourceType === 'zip' ? 'zip upload' : r.sourceUrl}</td>
+                  <td className="muted text-small">{r.sourceType === 'zip' ? 'zip upload' : r.sourceUrl}</td>
                   <td>
                     <span className={`badge ${r.status}`}>{r.status}</span>
-                    {r.error ? <div className="error-text" style={{ fontSize: 11 }}>{r.error}</div> : null}
+                    {r.error ? <div className="error-text text-small">{r.error}</div> : null}
                   </td>
                   <td className="num">{num(r.commitCount)}</td>
                   <td className="muted"><code>{r.headCommit?.slice(0, 8) ?? '—'}</code></td>
@@ -99,7 +98,7 @@ export function RepositoriesPage(props: {
                         <div className="progress">
                           <div style={{ width: `${Math.round(jobs[r.id].progress * 100)}%` }} />
                         </div>
-                        <span className="muted" style={{ fontSize: 11 }}>
+                        <span className="muted text-small">
                           {jobs[r.id].stage}: {jobs[r.id].message}
                         </span>
                       </>

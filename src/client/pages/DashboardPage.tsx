@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api, query } from '../lib/api';
 import { FilterBar, filtersToQuery, type UiFilters } from '../components/FilterBar';
 import {
@@ -10,6 +10,123 @@ import {
 } from '../components/MetricBits';
 import { RatWheelLoader } from '../components/RatWheelLoader';
 import type { AuthorInfo, ChildrenResponse, MetricsResponse, RepositorySummary, SummaryResponse } from '../../shared/types';
+
+function RepositoryHeading(props: {
+  repos: RepositorySummary[];
+  repoId: number | undefined;
+  onRepoChange: (id: number) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const picker = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const track = useRef<HTMLDivElement>(null);
+  const carouselId = useId();
+  const repo = props.repos.find((item) => item.id === props.repoId);
+  const ingesting = repo?.status === 'pending' || repo?.status === 'ingesting';
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !picker.current?.contains(event.target)) setPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [pickerOpen]);
+
+  const closePicker = () => {
+    setPickerOpen(false);
+    toggle.current?.focus();
+  };
+
+  const scrollRepos = (direction: number) => {
+    if (!track.current) return;
+    track.current.scrollBy({
+      left: direction * Math.max(120, track.current.clientWidth * 0.8),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+  };
+
+  return (
+    <header className="repository-header">
+      <div className={`repository-heading${pickerOpen ? ' switching' : ''}`}>
+        <h1 title={repo?.name}>{repo?.name ?? 'Dashboard'}</h1>
+        <div
+          className={`repo-switcher${pickerOpen ? ' is-open' : ''}`}
+          ref={picker}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setPickerOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closePicker();
+            }
+          }}
+        >
+          <button
+            type="button"
+            className="repo-switcher-toggle"
+            ref={toggle}
+            aria-label="Switch repository"
+            title="Switch repository"
+            aria-expanded={pickerOpen}
+            aria-controls={carouselId}
+            onClick={() => setPickerOpen((open) => !open)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4" />
+            </svg>
+          </button>
+          <div
+            id={carouselId}
+            className="repository-carousel"
+            role="group"
+            aria-label="Available repositories"
+            aria-hidden={!pickerOpen}
+          >
+            <button type="button" className="carousel-step" aria-label="Scroll repositories left" tabIndex={pickerOpen ? 0 : -1} onClick={() => scrollRepos(-1)} disabled={props.repos.length === 0}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+            </button>
+            <div
+              className="repository-options"
+              ref={track}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                const buttons = [...event.currentTarget.querySelectorAll('button')];
+                const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+                if (index < 0) return;
+                event.preventDefault();
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : index + (event.key === 'ArrowRight' ? 1 : -1);
+                buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus();
+              }}
+            >
+              {props.repos.length === 0 && <p className="muted text-small">No repositories yet. Use + to add one.</p>}
+              {props.repos.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  tabIndex={pickerOpen ? 0 : -1}
+                  aria-current={item.id === props.repoId ? 'true' : undefined}
+                  title={`${item.name} — ${item.status}`}
+                  onClick={() => {
+                    props.onRepoChange(item.id);
+                    closePicker();
+                  }}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="carousel-step" aria-label="Scroll repositories right" tabIndex={pickerOpen ? 0 : -1} onClick={() => scrollRepos(1)} disabled={props.repos.length === 0}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m10 6 6 6-6 6" /></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      {ingesting && <RatWheelLoader compact label={repo.status === 'pending' ? 'Queued for ingestion…' : 'Ingesting repository…'} />}
+    </header>
+  );
+}
 
 export function DashboardPage(props: {
   repos: RepositorySummary[];
@@ -24,12 +141,16 @@ export function DashboardPage(props: {
   const [children, setChildren] = useState<ChildrenResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const repo = props.repos.find((item) => item.id === props.repoId);
+  const repoStatus = repo?.status;
 
   useEffect(() => {
-    if (!props.repoId) {
+    if (!props.repoId || repoStatus !== 'ready') {
       setSummary(null);
       setObject(null);
       setChildren(null);
+      setLoading(false);
+      setError('');
       return;
     }
     let cancelled = false;
@@ -47,6 +168,7 @@ export function DashboardPage(props: {
       .catch((err: Error) => {
         if (!cancelled) {
           setError(err.message);
+          setSummary(null);
           setObject(null);
           setChildren(null);
         }
@@ -57,49 +179,31 @@ export function DashboardPage(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.repoId, props.filters]);
-
-  if (!props.repoId) {
-    return (
-      <>
-        <h1>Dashboard</h1>
-        <section className="panel">
-          <p className="muted">
-            No specimen selected. Use the <strong>+</strong> button in the sidebar to add a repository, then pick it here.
-          </p>
-        </section>
-        <FilterBar
-          repos={props.repos}
-          repoId={props.repoId}
-          authors={props.authors}
-          filters={props.filters}
-          onRepoChange={props.onRepoChange}
-          onFiltersChange={props.onFiltersChange}
-        />
-      </>
-    );
-  }
-
-  const repo = props.repos.find((r) => r.id === props.repoId);
+  }, [props.repoId, props.filters, repoStatus]);
 
   return (
     <>
-      <h1>🔬 {repo?.name ?? `repo ${props.repoId}`}</h1>
-      {repo && repo.status !== 'ready' && (
+      <RepositoryHeading repos={props.repos} repoId={props.repoId} onRepoChange={props.onRepoChange} />
+      {!props.repoId && (
         <section className="panel">
-          <span className={`badge ${repo.status}`}>{repo.status}</span>{' '}
-          <span className="muted">{repo.error ?? 'ingestion in progress…'}</span>
+          <p className="muted">Choose a repository using the switch beside the title, or use <strong>+</strong> to add one.</p>
         </section>
       )}
-      <FilterBar
-        repos={props.repos}
-        repoId={props.repoId}
-        authors={props.authors}
-        filters={props.filters}
-        onRepoChange={props.onRepoChange}
-        onFiltersChange={props.onFiltersChange}
-      />
-      {loading && <RatWheelLoader label="Analysing specimen…" />}
+      {repo?.status === 'error' && (
+        <section className="panel">
+          <p className="error-text">{repo.error ?? 'Repository ingestion failed.'}</p>
+        </section>
+      )}
+      {props.repoId && (
+        <FilterBar
+          key={props.repoId}
+          repoId={props.repoId}
+          authors={props.authors}
+          filters={props.filters}
+          onFiltersChange={props.onFiltersChange}
+        />
+      )}
+      {loading && <RatWheelLoader />}
       {error && (
         <section className="panel">
           <p className="error-text">{error}</p>
@@ -130,7 +234,7 @@ export function DashboardPage(props: {
         </>
       )}
       {props.repoId && (
-        <p className="muted" style={{ fontSize: 11, opacity: 0.6 }}>
+        <p className="muted text-small">
           raw: <code>/api/metrics/summary{query({ repo: props.repoId })}</code>
         </p>
       )}
