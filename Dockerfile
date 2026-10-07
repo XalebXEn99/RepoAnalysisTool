@@ -32,11 +32,13 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
-# Persistent volume for SQLite database and repo working copies
+# Persistent data for SQLite database and repo working copies.
+# Note: the VOLUME instruction is intentionally omitted -- Railway (and most
+# PaaS builders) reject it and manage persistence via platform volumes instead.
+# Mount a Railway Volume at /app/data to keep data across restarts.
 ENV RAT_DATA_DIR=/app/data
 ENV RAT_HOST=0.0.0.0
 ENV RAT_PORT=8787
-VOLUME ["/app/data"]
 
 EXPOSE 8787
 
