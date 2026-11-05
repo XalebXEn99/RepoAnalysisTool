@@ -1,74 +1,38 @@
-import { db } from '../db/connection';
-import type { JobStatus } from '../../shared/types';
+import { query } from '../db/connection';
 
 export interface JobHandle {
   jobId: number;
-  update(stage: string, progress: number, message?: string): void;
+  update(stage: string, progress: number, message?: string): Promise<void> | void;
 }
 
-interface QueuedJob {
-  jobId: number;
-  repositoryId: number | null;
-  task: (handle: JobHandle) => Promise<void>;
+export async function enqueue(repositoryId: number): Promise<number> {
+  return (await query<{ id: number }>('INSERT INTO jobs(repository_id) VALUES ($1) RETURNING id', [repositoryId]))[0].id;
 }
 
-/**
- * Serial in-process job queue. Ingestion is CPU/IO heavy, so jobs run one at
- * a time and publish progress to the `jobs` table (WAL keeps reads live).
- */
-class JobManager {
-  private queue: QueuedJob[] = [];
-  private pumping = false;
-
-  enqueue(repositoryId: number | null, task: (handle: JobHandle) => Promise<void>): number {
-    const info = db()
-      .prepare(
-        `INSERT INTO jobs (repository_id, stage, progress, message, status)
-         VALUES (?, 'queued', 0, 'waiting for worker', 'queued')`,
-      )
-      .run(repositoryId);
-    const jobId = Number(info.lastInsertRowid);
-    this.queue.push({ jobId, repositoryId, task });
-    void this.pump();
-    return jobId;
-  }
-
-  private async pump(): Promise<void> {
-    if (this.pumping) return;
-    this.pumping = true;
-    try {
-      while (this.queue.length > 0) {
-        const job = this.queue.shift()!;
-        const handle: JobHandle = {
-          jobId: job.jobId,
-          update: (stage, progress, message) => this.setProgress(job.jobId, 'running', stage, progress, message),
-        };
-        this.setProgress(job.jobId, 'running', 'starting', 0, 'starting');
-        try {
-          await job.task(handle);
-          this.setProgress(job.jobId, 'done', 'done', 1, 'completed');
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          this.setProgress(job.jobId, 'error', 'failed', 0, message);
-          if (job.repositoryId !== null) {
-            db()
-              .prepare(`UPDATE repositories SET status = 'error', error = ? WHERE id = ?`)
-              .run(message, job.repositoryId);
-          }
-        }
-      }
-    } finally {
-      this.pumping = false;
-    }
-  }
-
-  private setProgress(jobId: number, status: JobStatus, stage: string, progress: number, message?: string): void {
-    db()
-      .prepare(
-        `UPDATE jobs SET status = ?, stage = ?, progress = ?, message = ?, updated_at = datetime('now') WHERE id = ?`,
-      )
-      .run(status, stage, Math.max(0, Math.min(1, progress)), message ?? '', jobId);
-  }
+export async function claimJob(workerId: string): Promise<{ id: number; repository_id: number } | undefined> {
+  // Expired leases may be retried after a worker crash; every retry rebuilds derived data.
+  await query(`UPDATE jobs SET status='error',stage='failed',message='worker interrupted too many times',
+    updated_at=now() WHERE (status='queued' OR (status='running' AND lease_until<now())) AND attempts>=3`);
+  await query(`UPDATE repositories SET status='error',error='worker interrupted too many times'
+    WHERE status IN ('pending','ingesting') AND id IN (
+      SELECT repository_id FROM jobs WHERE status='error' AND attempts>=3)`);
+  return (await query<{ id: number; repository_id: number }>(`UPDATE jobs SET
+    status='running',stage='starting',attempts=attempts+1,worker_id=$1,
+    lease_until=now()+interval '2 minutes',updated_at=now()
+    WHERE id=(SELECT id FROM jobs
+      WHERE status='queued' OR (status='running' AND lease_until<now())
+      ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+    RETURNING id,repository_id`, [workerId]))[0];
 }
 
-export const jobManager = new JobManager();
+export function jobHandle(jobId: number, workerId: string): JobHandle {
+  return {
+    jobId,
+    update: async (stage, progress, message = '') => {
+      const rows = await query(`UPDATE jobs SET stage=$1,progress=$2,message=$3,updated_at=now(),
+        lease_until=now()+interval '2 minutes' WHERE id=$4 AND worker_id=$5 AND status='running' RETURNING id`,
+      [stage, Math.max(0, Math.min(1, progress)), message, jobId, workerId]);
+      if (!rows.length) throw new Error('job lease lost');
+    },
+  };
+}

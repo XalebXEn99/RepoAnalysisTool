@@ -7,5 +7,7 @@ export default defineConfig({
     hookTimeout: 120000,
     // ingest touches the real git binary and a scratch database
     pool: 'forks',
+    maxWorkers: 2,
+    minWorkers: 1,
   },
 });

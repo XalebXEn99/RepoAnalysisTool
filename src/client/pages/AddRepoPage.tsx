@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { RatWheelLoader } from '../components/RatWheelLoader';
 
-export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
+export function AddRepoPage(props: {
+  onDone: (repoId: number) => void;
+}) {
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,13 +48,15 @@ export function AddRepoPage(props: { onDone: (repoId: number) => void }) {
 
   return (
     <>
-      <h1>New Specimen</h1>
+      <h1>Add repository</h1>
+
+      <p className="muted">Paste a repository URL or upload its Git history. No account required. Imported analyses are public.</p>
 
       {busy && <RatWheelLoader />}
 
       <section className="panel">
         <h2>Clone from URL</h2>
-        <p className="muted text-small">Full history clone into local storage.</p>
+        <p className="muted text-small">Full-history HTTPS clone from GitHub, GitLab, or Bitbucket into server storage.</p>
         <div className="row">
           <input
             type="text"

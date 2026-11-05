@@ -1,6 +1,11 @@
 # Dependencies
 node_modules/
 
+# Local environment variables and credentials
+.env
+.env.*
+!.env.example
+
 # Build output
 dist/
 
@@ -20,3 +25,4 @@ tmp/
 .idea/
 .DS_Store
 *.log
+.neon

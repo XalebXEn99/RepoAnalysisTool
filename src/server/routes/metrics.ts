@@ -1,120 +1,83 @@
-import { Router, type Request, type Response } from 'express';
-import { db } from '../db/connection';
-import {
-  commitSetSize,
-  getTimeline,
-  listAuthorsForObject,
-  listChildren,
-  listTop,
-  getObjectMetrics,
-} from '../metrics/queryEngine';
-import type { MetricFilters, ObjectKind } from '../../shared/types';
+import { Router, type Request } from 'express';
+import { query } from '../db/connection';
+import { commitSetSize, getTimeline, listAuthorsForObject, listChildren, countChildren, listTop, getObjectMetrics } from '../metrics/queryEngine';
+import type { MetricFilters } from '../../shared/types';
 import { toSummary } from './mappers';
+import { asyncRoute, HttpError, pageNumber, positiveId } from '../http';
 
 export const metricsRouter = Router();
 
-function parseTimestamp(value: unknown): number | undefined {
+export function parseTimestamp(value: unknown): number | undefined {
   if (value === undefined || value === '') return undefined;
   const raw = String(value);
-  if (/^\d+$/.test(raw)) return Number(raw);
-  const ms = Date.parse(raw);
-  return Number.isNaN(ms) ? undefined : Math.floor(ms / 1000);
+  const number = /^\d+$/.test(raw) ? Number(raw) : Math.floor(Date.parse(raw) / 1000);
+  if (!Number.isSafeInteger(number) || number < 0 || number > 253402300799) throw new HttpError(400, 'invalid timestamp');
+  return number;
 }
 
-function filtersFrom(req: Request): { filters?: MetricFilters; error?: string; path: string } {
-  const repoId = Number(req.query.repo ?? req.query.repoId);
-  if (!Number.isFinite(repoId) || repoId <= 0) {
-    return { error: 'query parameter "repo" (repository id) is required', path: '' };
+export function filtersFrom(req: Request): MetricFilters {
+  const from = parseTimestamp(req.query.from);
+  const to = parseTimestamp(req.query.to);
+  if (from !== undefined && to !== undefined && from > to) throw new HttpError(400, 'from must not exceed to');
+  const raw = String(req.query.commits ?? '');
+  const hashes = raw ? raw.split(',').map((hash) => hash.trim()) : undefined;
+  if (hashes && (hashes.length > 500 || hashes.some((hash) => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(hash)))) {
+    throw new HttpError(400, 'select at most 500 valid full commit hashes');
   }
-  const authorRaw = req.query.author;
-  const authorId = authorRaw === undefined || authorRaw === '' ? undefined : Number(authorRaw);
-  const commitsRaw = String(req.query.commits ?? '');
-  const commitHashes = commitsRaw ? commitsRaw.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
   return {
-    path: String(req.query.path ?? ''),
-    filters: {
-      repoId,
-      authorId: authorId !== undefined && Number.isFinite(authorId) ? authorId : undefined,
-      from: parseTimestamp(req.query.from),
-      to: parseTimestamp(req.query.to),
-      commitHashes,
-    },
+    repoId: positiveId(req.query.repo ?? req.query.repoId),
+    authorId: req.query.author ? positiveId(req.query.author) : undefined,
+    from, to, commitHashes: hashes,
   };
 }
 
-function repoOr404(repoId: number) {
-  return db().prepare('SELECT * FROM repositories WHERE id = ?').get(repoId) as
-    | Record<string, unknown>
-    | undefined;
-}
-
-metricsRouter.get('/summary', (req: Request, res: Response) => {
-  const { filters, error } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  const repository = repoOr404(filters.repoId);
-  if (!repository) return res.status(404).json({ error: 'repository not found' });
-  const root = getObjectMetrics(filters, '');
-  res.json({
-    repository: toSummary(repository),
-    root:
-      root ?? {
-        path: '',
-        kind: 'dir',
-        added: 0,
-        removed: 0,
-        growth: 0,
-        churn: 0,
-        modifications: 0,
-        modificationFrequency: 0,
-        churnRate: 0,
-        commitCount: 0,
-      },
-    authors: listAuthorsForObject(filters, ''),
-    topChurn: listTop(filters, 'churn', 'file', 10),
-    topModified: listTop(filters, 'modifications', 'file', 10),
-    timeline: getTimeline(filters, ''),
-    commitCount: commitSetSize(filters),
-  });
+metricsRouter.use((req, _res, next) => {
+  void (async () => {
+    const [repo] = await query('SELECT status FROM repositories WHERE id=$1', [positiveId(req.query.repo ?? req.query.repoId)]);
+    if (!repo) throw new HttpError(404, 'repository not found');
+    if (repo.status !== 'ready') throw new HttpError(409, 'repository analysis is not ready');
+  })().then(() => next(), next);
 });
 
-metricsRouter.get('/object', (req: Request, res: Response) => {
-  const { filters, error, path } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  const metrics = getObjectMetrics(filters, path);
-  if (!metrics) return res.status(404).json({ error: `object "${path}" has no recorded changes` });
-  res.json({
-    repositoryId: filters.repoId,
-    path,
-    kind: metrics.kind,
-    metrics,
-    authors: listAuthorsForObject(filters, path),
-    timeline: getTimeline(filters, path),
-  });
-});
+metricsRouter.get('/summary', asyncRoute(async (req, res) => {
+  const filters = filtersFrom(req);
+  const [repository] = await query('SELECT * FROM repositories WHERE id=$1', [filters.repoId]);
+  const size = await commitSetSize(filters);
+  const [root, authors, topChurn, topModified, timeline] = await Promise.all([
+    getObjectMetrics(filters, '', size), listAuthorsForObject(filters, ''),
+    listTop(filters, 'churn', 'file', 10, size), listTop(filters, 'modifications', 'file', 10, size), getTimeline(filters, ''),
+  ]);
+  if (!root) throw new HttpError(409, 'repository index is incomplete');
+  res.json({ repository: toSummary(repository), root, authors, topChurn, topModified, timeline, commitCount: root.commitCount });
+}));
 
-metricsRouter.get('/children', (req: Request, res: Response) => {
-  const { filters, error, path } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  res.json({ repositoryId: filters.repoId, path, children: listChildren(filters, path) });
-});
+metricsRouter.get('/object', asyncRoute(async (req, res) => {
+  const filters = filtersFrom(req);
+  const path = String(req.query.path ?? '');
+  const metrics = await getObjectMetrics(filters, path);
+  if (!metrics) throw new HttpError(404, 'object has no recorded changes');
+  const [authors, timeline] = await Promise.all([listAuthorsForObject(filters, path), getTimeline(filters, path)]);
+  res.json({ repositoryId: filters.repoId, path, kind: metrics.kind, metrics, authors, timeline });
+}));
 
-metricsRouter.get('/top', (req: Request, res: Response) => {
-  const { filters, error } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  const by = req.query.by === 'modifications' ? 'modifications' : 'churn';
-  const kind: ObjectKind = req.query.kind === 'dir' ? 'dir' : 'file';
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 10) || 10));
-  res.json(listTop(filters, by, kind, limit));
-});
+metricsRouter.get('/children', asyncRoute(async (req, res) => {
+  const filters = filtersFrom(req);
+  const path = String(req.query.path ?? '');
+  const limit = Math.max(1, pageNumber(req.query.limit, 100, 500));
+  const offset = pageNumber(req.query.offset, 0, 10000000);
+  const [children, total] = await Promise.all([listChildren(filters, path, limit, offset), countChildren(filters, path)]);
+  res.json({ repositoryId: filters.repoId, path, children, total });
+}));
 
-metricsRouter.get('/timeline', (req: Request, res: Response) => {
-  const { filters, error, path } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  res.json(getTimeline(filters, path));
-});
+metricsRouter.get('/top', asyncRoute(async (req, res) => {
+  res.json(await listTop(filtersFrom(req), req.query.by === 'modifications' ? 'modifications' : 'churn',
+    req.query.kind === 'dir' ? 'dir' : 'file', Math.max(1, pageNumber(req.query.limit, 10, 100))));
+}));
+metricsRouter.get('/timeline', asyncRoute(async (req, res) => {
+  res.json(await getTimeline(filtersFrom(req), String(req.query.path ?? '')));
+}));
+metricsRouter.get('/authors', asyncRoute(async (req, res) => {
+  res.json(await listAuthorsForObject(filtersFrom(req), String(req.query.path ?? '')));
+}));
 
-metricsRouter.get('/authors', (req: Request, res: Response) => {
-  const { filters, error, path } = filtersFrom(req);
-  if (!filters) return res.status(400).json({ error });
-  res.json(listAuthorsForObject(filters, path));
-});
+export { commitSetSize };

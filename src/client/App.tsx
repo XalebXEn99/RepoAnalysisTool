@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { api } from './lib/api';
 import { Layout, type PageId } from './components/Layout';
 import { emptyFilters, type UiFilters } from './components/FilterBar';
-import { DashboardPage } from './pages/DashboardPage';
-import { RepositoriesPage } from './pages/RepositoriesPage';
-import { AddRepoPage } from './pages/AddRepoPage';
-import { AuthorsPage } from './pages/AuthorsPage';
 import type { AuthorInfo, RepositorySummary } from '../shared/types';
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const RepositoriesPage = lazy(() => import('./pages/RepositoriesPage').then((module) => ({ default: module.RepositoriesPage })));
+const AddRepoPage = lazy(() => import('./pages/AddRepoPage').then((module) => ({ default: module.AddRepoPage })));
+const AuthorsPage = lazy(() => import('./pages/AuthorsPage').then((module) => ({ default: module.AuthorsPage })));
 
 export default function App() {
   const [page, setPage] = useState<PageId>('dashboard');
@@ -22,7 +23,7 @@ export default function App() {
       .then((list) => {
         setRepos(list);
         setFatal('');
-        setRepoId((current) => current ?? list.find((r) => r.status === 'ready')?.id ?? list[0]?.id);
+        setRepoId((current) => list.some((repo) => repo.id === current) ? current : list.find((r) => r.status === 'ready')?.id ?? list[0]?.id);
       })
       .catch((err: Error) => setFatal(err.message));
   }, []);
@@ -39,29 +40,39 @@ export default function App() {
     return () => clearInterval(timer);
   }, [busy, refresh]);
 
+  const selectedStatus = repos.find((repo) => repo.id === repoId)?.status;
   useEffect(() => {
     if (!repoId) {
       setAuthors([]);
       return;
     }
+    const controller = new AbortController();
     api
-      .authors(repoId)
-      .then(setAuthors)
-      .catch(() => setAuthors([]));
-  }, [repoId, repos]);
+      .authors(repoId, controller.signal)
+      .then((list) => setAuthors(list))
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') setFatal(`Cannot load authors: ${err.message}`);
+      });
+    return () => controller.abort();
+  }, [repoId, selectedStatus]);
 
   const changeRepo = (id: number) => {
     setRepoId(id);
     setFilters(emptyFilters);
   };
 
+  const navigate = (next: PageId) => {
+    setPage(next);
+  };
+
   return (
-    <Layout page={page} onNavigate={setPage}>
+    <Layout page={page} onNavigate={navigate}>
       {fatal && (
         <section className="panel">
           <p className="error-text">Cannot reach the RAT server: {fatal}</p>
         </section>
       )}
+      <Suspense fallback={<p role="status">Loading dashboard…</p>}>
       {page === 'dashboard' && (
         <DashboardPage
           repos={repos}
@@ -76,7 +87,7 @@ export default function App() {
         <RepositoriesPage
           repos={repos}
           onRefresh={refresh}
-          onAdd={() => setPage('add')}
+          onAdd={() => navigate('add')}
           onSelect={(id) => {
             changeRepo(id);
             setPage('dashboard');
@@ -92,7 +103,15 @@ export default function App() {
           }}
         />
       )}
-      {page === 'authors' && <AuthorsPage repos={repos} repoId={repoId} onRepoChange={changeRepo} />}
+      {page === 'authors' && (
+        <AuthorsPage
+          repos={repos}
+          repoId={repoId}
+          onRepoChange={changeRepo}
+          onAuthorsChanged={setAuthors}
+        />
+      )}
+      </Suspense>
     </Layout>
   );
 }

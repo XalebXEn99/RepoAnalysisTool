@@ -21,11 +21,14 @@ export function RepositoriesPage(props: {
       Promise.all(active.map((r) => api.jobs(r.id).then((list) => [r.id, list[0]] as const)))
         .then((entries) => {
           if (cancelled) return;
+          setError('');
           const next: Record<number, JobInfo> = {};
           for (const [id, job] of entries) if (job) next[id] = job;
           setJobs(next);
         })
-        .catch(() => undefined);
+        .catch((err: Error) => {
+          if (!cancelled) setError(`Cannot refresh ingestion progress: ${err.message}`);
+        });
     };
     tick();
     const timer = setInterval(tick, 2000);

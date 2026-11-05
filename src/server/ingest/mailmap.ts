@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { GIT_TIMEOUT_MS } from '../config';
+import { gitEnvironment } from './gitSource';
 
 export interface AuthorIdent {
   name: string;
@@ -27,11 +29,15 @@ export function resolveMailmap(repoPath: string, idents: AuthorIdent[]): Map<str
   const result = new Map<string, AuthorIdent>();
   if (idents.length === 0) return result;
   const input = idents.map(formatIdent).join('\n') + '\n';
-  const res = spawnSync('git', ['-C', repoPath, 'check-mailmap', '--stdin'], {
+  const res = spawnSync('git', ['-C', repoPath, '-c', 'mailmap.blob=HEAD:.mailmap', 'check-mailmap', '--stdin'], {
     input,
     maxBuffer: 256 * 1024 * 1024,
+    timeout: GIT_TIMEOUT_MS,
+    env: gitEnvironment(),
   });
-  const lines = (res.status === 0 ? res.stdout.toString('utf8') : input).split('\n');
+  if (res.error) throw res.error;
+  if (res.status !== 0) throw new Error(`git check-mailmap failed: ${res.stderr.toString().trim()}`);
+  const lines = res.stdout.toString('utf8').split('\n');
   idents.forEach((raw, i) => {
     const canonical = parseIdent(lines[i] ?? '') ?? raw;
     result.set(formatIdent(raw), canonical);

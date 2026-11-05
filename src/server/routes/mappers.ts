@@ -16,8 +16,8 @@ export function toSummary(row: Record<string, unknown>): RepositorySummary {
     commitCount: row.commit_count as number,
     status: row.status as RepositorySummary['status'],
     error: (row.error as string | null) ?? null,
-    createdAt: row.created_at as string,
-    ingestedAt: (row.ingested_at as string | null) ?? null,
+    createdAt: new Date(row.created_at as string).toISOString(),
+    ingestedAt: row.ingested_at ? new Date(row.ingested_at as string).toISOString() : null,
   };
 }
 
@@ -29,7 +29,7 @@ export function toJob(row: Record<string, unknown>): JobInfo {
     progress: row.progress as number,
     message: row.message as string,
     status: row.status as JobInfo['status'],
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
+    createdAt: new Date(row.created_at as string).toISOString(),
+    updatedAt: new Date(row.updated_at as string).toISOString(),
   };
 }

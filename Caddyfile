@@ -1,0 +1,4 @@
+rat.thestone.co.za {
+    encode zstd gzip
+    reverse_proxy api:8787
+}

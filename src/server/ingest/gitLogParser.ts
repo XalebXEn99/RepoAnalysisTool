@@ -1,6 +1,6 @@
-import { spawnSync } from 'node:child_process';
-import { RENAME_THRESHOLD } from '../config';
-import { headCommit } from './gitSource';
+import { spawn, spawnSync } from 'node:child_process';
+import { GIT_TIMEOUT_MS, RENAME_THRESHOLD } from '../config';
+import { headCommit, gitEnvironment } from './gitSource';
 
 /**
  * Streaming-safe parser for `git log --numstat -z`.
@@ -60,6 +60,8 @@ export function gitLogArgs(): string[] {
     'log',
     '--no-merges', // H-bar excludes merge commits (docs/test_brief.md §2)
     '--numstat',
+    '--no-ext-diff',
+    '--no-textconv',
     `-M${RENAME_THRESHOLD}`, // rename detection at 50%
     '-z', // unquoted, NUL separated paths: the only unambiguous format
     `--pretty=${GIT_LOG_PRETTY}`,
@@ -73,7 +75,8 @@ const HASH_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 export function runGitLog(repoPath: string): Buffer {
   const res = spawnSync('git', ['-C', repoPath, ...gitLogArgs()], {
     maxBuffer: 2 * 1024 * 1024 * 1024,
-    env: { ...process.env, GIT_PAGER: 'cat', LC_ALL: 'C' },
+    env: gitEnvironment(),
+    timeout: GIT_TIMEOUT_MS,
   });
   if (res.error) throw res.error;
   if (res.status !== 0) {
@@ -82,6 +85,41 @@ export function runGitLog(repoPath: string): Buffer {
     throw new Error(`git log failed: ${res.stderr?.toString() ?? 'unknown error'}`);
   }
   return res.stdout;
+}
+
+/** Retain at most one commit record rather than a whole repository's history. */
+export async function* streamGitLog(repoPath: string, signal?: AbortSignal): AsyncGenerator<ParsedCommit> {
+  if (headCommit(repoPath) === null) return;
+  const child = spawn('git', ['-C', repoPath, ...gitLogArgs()], {
+    env: gitEnvironment(), stdio: ['ignore', 'pipe', 'pipe'], signal, timeout: GIT_TIMEOUT_MS,
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000); });
+  const completed = new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(`git log failed: ${stderr || `exit ${code}`}`)));
+  });
+  void completed.catch(() => undefined);
+  let pending = Buffer.alloc(0);
+  try {
+    for await (const chunk of child.stdout) {
+      pending = Buffer.concat([pending, chunk]);
+      let next = pending.indexOf(SENTINEL, 1);
+      while (next !== -1) {
+        yield* parseGitLog(pending.subarray(0, next));
+        pending = pending.subarray(next);
+        next = pending.indexOf(SENTINEL, 1);
+      }
+      if (pending.length > 32 * 1024 * 1024) throw new Error('single commit exceeds 32 MiB parsing limit');
+    }
+    await completed;
+    if (pending.length) yield* parseGitLog(pending);
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await completed.catch((error: unknown) => {
+      if (!signal?.aborted) throw error;
+    });
+  }
 }
 
 class Cursor {

@@ -113,6 +113,7 @@ export interface ChildrenResponse {
   repositoryId: number;
   path: string;
   children: ObjectMetrics[];
+  total: number;
 }
 
 export interface SummaryResponse {

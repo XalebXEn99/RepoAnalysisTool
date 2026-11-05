@@ -1,12 +1,17 @@
 import { HOST, PORT, ensureDataDirs } from './config';
 import { createApp } from './app';
-import { db } from './db/connection';
+import { query, closeDb } from './db/connection';
 
-// Data directories and the SQLite connection must exist before the first request.
+// Verify storage and PostgreSQL connectivity before accepting requests.
 ensureDataDirs();
-db();
-
-createApp().listen(PORT, HOST, () => {
+await query('SELECT 1');
+const server = createApp().listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`[rat] api listening on http://${HOST}:${PORT}`);
 });
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    server.close(() => { void closeDb().catch((error: unknown) => { console.error(error); process.exitCode = 1; }); });
+  });
+}

@@ -10,6 +10,7 @@ export function AuthorsPage(props: {
   repos: RepositorySummary[];
   repoId: number | undefined;
   onRepoChange: (id: number) => void;
+  onAuthorsChanged: (authors: AuthorInfo[]) => void;
 }) {
   const [authors, setAuthors] = useState<AuthorInfo[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -24,12 +25,21 @@ export function AuthorsPage(props: {
       setAuthors([]);
       return;
     }
+    const controller = new AbortController();
     setLoading(true);
     api
-      .authors(props.repoId)
-      .then(setAuthors)
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+      .authors(props.repoId, controller.signal)
+      .then((list) => {
+        setAuthors(list);
+        setError('');
+      })
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') setError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [props.repoId]);
 
   const merge = async () => {
@@ -39,6 +49,7 @@ export function AuthorsPage(props: {
     try {
       const next = await api.mergeAuthors(props.repoId, [...selected], target);
       setAuthors(next);
+      props.onAuthorsChanged(next);
       setSelected(new Set());
       setNotice('Subjects merged — metrics now use canonical identities.');
     } catch (err) {
@@ -69,7 +80,8 @@ export function AuthorsPage(props: {
           </button>
         </div>
         <p className="muted text-small">
-          Identities are pre-merged through .mailmap. Tick rows to merge, choose a target with the radio button.
+          Identities are pre-merged through .mailmap.
+          {' Tick rows to merge, choose a target with the radio button.'}
         </p>
         {error && <p className="error-text">{error}</p>}
         {notice && <p className="success-text">{notice}</p>}

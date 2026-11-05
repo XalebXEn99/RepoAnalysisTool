@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, query } from '../lib/api';
 import type { AuthorInfo, CommitInfo } from '../../shared/types';
 
+const COMMIT_PAGE_SIZE = 100;
+
 /** Client-side filter model mirroring the brief's four filter dimensions. */
 export interface UiFilters {
   authorId?: number;
@@ -31,13 +33,34 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
   const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set(props.selected));
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setOffset(0);
+      setDebouncedSearch(search.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
     api
-      .commits(props.repoId, 300)
+      .commits(props.repoId, COMMIT_PAGE_SIZE, offset, debouncedSearch, controller.signal)
       .then(setCommits)
-      .catch((err: Error) => setError(err.message));
-  }, [props.repoId]);
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') setError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [props.repoId, offset, debouncedSearch]);
 
   const toggle = (hash: string) => {
     setPicked((prev) => {
@@ -58,7 +81,16 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
           </button>
         </div>
         {error && <p className="error-text">{error}</p>}
-        <p className="muted">Most recent 300 non-merge commits. Leave empty to use the whole history / date range.</p>
+        <p className="muted">Browse commits or search by hash, author, or subject. Leave empty to use the whole history / date range.</p>
+        <label className="commit-search">
+          Search commits
+          <input
+            type="search"
+            value={search}
+            placeholder="Hash, author, or subject"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
         <div className="table-container" style={{ maxHeight: '45vh' }}>
           <table className="grid">
             <thead>
@@ -71,6 +103,8 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
               </tr>
             </thead>
             <tbody>
+              {loading && <tr><td colSpan={5} className="muted">Loading commits…</td></tr>}
+              {!loading && commits.length === 0 && <tr><td colSpan={5} className="muted">No matching commits.</td></tr>}
               {commits.map((c) => (
                 <tr key={c.hash} className="clickable" onClick={() => toggle(c.hash)}>
                   <td>
@@ -84,6 +118,25 @@ function CommitPicker(props: { repoId: number; selected: string[]; onApply: (has
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="commit-pagination">
+          <button
+            className="secondary"
+            disabled={loading || offset === 0}
+            onClick={() => setOffset((current) => Math.max(0, current - COMMIT_PAGE_SIZE))}
+          >
+            Previous
+          </button>
+          <span className="muted text-small">
+            Commits {commits.length === 0 ? 0 : offset + 1}–{offset + commits.length}
+          </span>
+          <button
+            className="secondary"
+            disabled={loading || commits.length < COMMIT_PAGE_SIZE}
+            onClick={() => setOffset((current) => current + COMMIT_PAGE_SIZE)}
+          >
+            Next
+          </button>
         </div>
         <div className="row" style={{ marginTop: 14 }}>
           <button className="primary" onClick={() => props.onApply([...picked])}>

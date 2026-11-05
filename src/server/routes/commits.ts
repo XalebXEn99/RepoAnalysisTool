@@ -1,38 +1,18 @@
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import { listCommits, listObjects } from '../metrics/queryEngine';
-import type { ObjectKind } from '../../shared/types';
+import { asyncRoute, positiveId, pageNumber, HttpError } from '../http';
+import { parseTimestamp } from './metrics';
 
 export const browseRouter = Router();
-
-function parseTimestamp(value: unknown): number | undefined {
-  if (value === undefined || value === '') return undefined;
-  const raw = String(value);
-  if (/^\d+$/.test(raw)) return Number(raw);
-  const ms = Date.parse(raw);
-  return Number.isNaN(ms) ? undefined : Math.floor(ms / 1000);
-}
-
-/** Commit list for the manual commit-set picker (H-bar only: non-merge). */
-browseRouter.get('/:id/commits', (req: Request, res: Response) => {
-  const repoId = Number(req.params.id);
-  const limit = Math.min(1000, Math.max(1, Number(req.query.limit ?? 200) || 200));
-  res.json(
-    listCommits(
-      {
-        repoId,
-        from: parseTimestamp(req.query.from),
-        to: parseTimestamp(req.query.to),
-      },
-      limit,
-    ),
-  );
-});
-
-/** File/directory browser backing the object filter. */
-browseRouter.get('/:id/objects', (req: Request, res: Response) => {
-  const repoId = Number(req.params.id);
-  const kindRaw = String(req.query.kind ?? '');
-  const kind: ObjectKind | undefined = kindRaw === 'file' || kindRaw === 'dir' ? kindRaw : undefined;
-  const limit = Math.min(5000, Math.max(1, Number(req.query.limit ?? 2000) || 2000));
-  res.json(listObjects(repoId, kind, String(req.query.prefix ?? ''), limit));
-});
+browseRouter.get('/:id/commits', asyncRoute(async (req, res) => {
+  const search = String(req.query.search ?? '');
+  if (search.length > 200) throw new HttpError(400, 'search must not exceed 200 characters');
+  res.json(await listCommits({
+    repoId: positiveId(req.params.id), from: parseTimestamp(req.query.from), to: parseTimestamp(req.query.to),
+  }, Math.max(1, pageNumber(req.query.limit, 100, 1000)), pageNumber(req.query.offset, 0, 10000000), search));
+}));
+browseRouter.get('/:id/objects', asyncRoute(async (req, res) => {
+  res.json(await listObjects(positiveId(req.params.id),
+    req.query.kind === 'file' || req.query.kind === 'dir' ? req.query.kind : undefined,
+    String(req.query.prefix ?? ''), Math.max(1, pageNumber(req.query.limit, 2000, 5000))));
+}));

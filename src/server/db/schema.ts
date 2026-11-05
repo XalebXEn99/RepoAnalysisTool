@@ -1,87 +1,111 @@
-/**
- * SQLite DDL. See IMPLEMENTATION_PLAN.md §4 for the rationale:
- * `changes` materialises per-commit deltas for files AND every ancestor
- * directory, so directory/repository metrics are plain indexed aggregates.
- */
-export const SCHEMA_SQL = `
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-PRAGMA temp_store = MEMORY;
-PRAGMA cache_size = -131072;
-
-CREATE TABLE IF NOT EXISTS repositories (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  name          TEXT    NOT NULL,
-  source_type   TEXT    NOT NULL,             -- 'clone' | 'zip'
-  source_url    TEXT,
-  path          TEXT    NOT NULL,             -- working copy on disk
-  head_commit   TEXT,
-  commit_count  INTEGER NOT NULL DEFAULT 0,
-  status        TEXT    NOT NULL DEFAULT 'pending', -- pending|ingesting|ready|error
-  error         TEXT,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-  ingested_at   TEXT
+export const MIGRATIONS = [
+  {
+    version: 1,
+    sql: `
+CREATE TABLE repositories (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('clone','zip','local')),
+  source_url TEXT,
+  path TEXT NOT NULL DEFAULT '',
+  head_commit TEXT,
+  commit_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','ingesting','ready','error')),
+  error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ingested_at TIMESTAMPTZ
 );
-
-CREATE TABLE IF NOT EXISTS authors (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE authors (
+  id SERIAL PRIMARY KEY,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  name          TEXT    NOT NULL,
-  email         TEXT    NOT NULL,
-  canonical_id  INTEGER NOT NULL,             -- authors.id of the merged identity
-  merge_source  TEXT    NOT NULL DEFAULT 'identity', -- identity|mailmap|manual
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  canonical_id INTEGER,
+  merge_source TEXT NOT NULL DEFAULT 'identity',
   UNIQUE (repository_id, name, email)
 );
-
-CREATE TABLE IF NOT EXISTS commits (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  repository_id  INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  hash           TEXT    NOT NULL,
-  author_id      INTEGER NOT NULL REFERENCES authors(id),
-  committer_date INTEGER NOT NULL,            -- unix seconds, h[committer-date]
-  is_merge       INTEGER NOT NULL DEFAULT 0,
-  parent_count   INTEGER NOT NULL DEFAULT 1,
-  subject        TEXT    NOT NULL DEFAULT '',
+CREATE TABLE commits (
+  id SERIAL PRIMARY KEY,
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  hash TEXT NOT NULL,
+  author_id INTEGER NOT NULL REFERENCES authors(id),
+  committer_date BIGINT NOT NULL,
+  is_merge INTEGER NOT NULL DEFAULT 0,
+  parent_count INTEGER NOT NULL DEFAULT 1,
+  subject TEXT NOT NULL DEFAULT '',
   UNIQUE (repository_id, hash)
 );
-
-CREATE TABLE IF NOT EXISTS objects (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE objects (
+  id SERIAL PRIMARY KEY,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  path          TEXT    NOT NULL,             -- '' denotes the repository root
-  kind          TEXT    NOT NULL,             -- 'file' | 'dir'
-  UNIQUE (repository_id, path)
+  path TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('file','dir')),
+  UNIQUE (repository_id,path)
 );
-
-CREATE TABLE IF NOT EXISTS changes (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE changes (
+  id SERIAL PRIMARY KEY,
   repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  commit_id     INTEGER NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
-  object_id     INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
-  added         INTEGER NOT NULL,             -- l+_{h,o}
-  removed       INTEGER NOT NULL,             -- l-_{h,o}
-  UNIQUE (commit_id, object_id)
+  commit_id INTEGER NOT NULL REFERENCES commits(id) ON DELETE CASCADE,
+  object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  added INTEGER NOT NULL CHECK (added >= 0),
+  removed INTEGER NOT NULL CHECK (removed >= 0),
+  UNIQUE (commit_id,object_id)
 );
-
-CREATE TABLE IF NOT EXISTS jobs (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE jobs (
+  id SERIAL PRIMARY KEY,
   repository_id INTEGER REFERENCES repositories(id) ON DELETE CASCADE,
-  stage         TEXT    NOT NULL DEFAULT '',
-  progress      REAL    NOT NULL DEFAULT 0,
-  message       TEXT    NOT NULL DEFAULT '',
-  status        TEXT    NOT NULL DEFAULT 'queued', -- queued|running|done|error
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  stage TEXT NOT NULL DEFAULT 'queued',
+  progress DOUBLE PRECISION NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT 'waiting for worker',
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','error')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lease_until TIMESTAMPTZ,
+  worker_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_commits_repo_date ON commits(repository_id,committer_date DESC,id);
+CREATE INDEX idx_commits_author ON commits(author_id);
+CREATE INDEX idx_authors_canon ON authors(canonical_id);
+CREATE INDEX idx_changes_repo_obj ON changes(repository_id,object_id,commit_id);
+CREATE INDEX idx_changes_repo_commit ON changes(repository_id,commit_id);
+CREATE INDEX idx_jobs_queue ON jobs(status,lease_until,id);
+CREATE INDEX idx_jobs_repo ON jobs(repository_id);
+CREATE TABLE manual_author_merges (
+  repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  source_name TEXT NOT NULL, source_email TEXT NOT NULL,
+  target_name TEXT NOT NULL, target_email TEXT NOT NULL,
+  PRIMARY KEY(repository_id,source_name,source_email)
 );
 
-CREATE INDEX IF NOT EXISTS idx_commits_repo_date  ON commits(repository_id, committer_date);
-CREATE INDEX IF NOT EXISTS idx_commits_repo_hash  ON commits(repository_id, hash);
-CREATE INDEX IF NOT EXISTS idx_commits_author     ON commits(author_id);
-CREATE INDEX IF NOT EXISTS idx_objects_repo_path  ON objects(repository_id, path);
-CREATE INDEX IF NOT EXISTS idx_authors_repo       ON authors(repository_id);
-CREATE INDEX IF NOT EXISTS idx_authors_canon      ON authors(canonical_id);
-CREATE INDEX IF NOT EXISTS idx_changes_repo_obj   ON changes(repository_id, object_id, commit_id);
-CREATE INDEX IF NOT EXISTS idx_changes_repo_commit ON changes(repository_id, commit_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_repo          ON jobs(repository_id);
-`;
+CREATE TABLE "user" (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
+  "emailVerified" BOOLEAN NOT NULL DEFAULT false, image TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE session (
+  id TEXT PRIMARY KEY, "expiresAt" TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "ipAddress" TEXT, "userAgent" TEXT,
+  "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_session_user ON session("userId");
+CREATE TABLE account (
+  id TEXT PRIMARY KEY, "accountId" TEXT NOT NULL, "providerId" TEXT NOT NULL,
+  "userId" TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+  "accessToken" TEXT, "refreshToken" TEXT, "idToken" TEXT,
+  "accessTokenExpiresAt" TIMESTAMPTZ, "refreshTokenExpiresAt" TIMESTAMPTZ,
+  scope TEXT, password TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE ("providerId","accountId")
+);
+CREATE INDEX idx_account_user ON account("userId");
+CREATE TABLE verification (
+  id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL,
+  "expiresAt" TIMESTAMPTZ NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(), "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_verification_identifier ON verification(identifier);
+`,
+  },
+];

@@ -1,128 +1,99 @@
-# RAT — Repo Analysis Tool
+# RAT - Repo Analysis Tool
 
-A local-first web dashboard that measures how a git repository evolved: who changed what, where the
-churn is, and how volatile each file, directory and the repository as a whole is.
+A web dashboard measuring how Git repositories evolve: who changed what, where the churn is,
+and how volatile files, directories and repositories are.
 
-## Clone and run
+## Architecture
 
-Requirements: Node >= 18.12, npm, and a system `git` (>= 2.30). The test suite also needs `zip`.
+- React/Vite dashboard and an Express API, served from the same origin in production.
+- PostgreSQL (the linked Neon project) stores metrics, canonical authors,
+  and durable ingestion jobs. SQLite is no longer used.
+- A separate worker clones/parses full histories without blocking the API. History is streamed and
+  inserted in bounded, atomic batches with materialized ancestor-directory deltas.
+- Repository files live on the server's disk; Docker Compose gives API and worker a shared volume.
+- No account or sign-in required: anyone can import a Git URL or ZIP, browse analyses, merge
+  authors, and delete finished analyses. This is a shared public workspace, not private storage.
 
-```bash
-git clone https://sdp.ms.wits.ac.za/Xaleb/RepoAnalysisTool
-cd RepoAnalysisTool
-npm install
-npm run dev
-```
+The functional source of truth is [docs/test_brief.md](docs/test_brief.md).
+The original [implementation plan](IMPLEMENTATION_PLAN.md) describes the historical SQLite design;
+this README and [deployment guide](DEPLOYMENT.md) describe the current architecture.
 
-Then open http://localhost:5173. `npm run dev` starts both processes: the Express API on :8787 and
-the Vite client on :5173, which proxies `/api` to the API.
+## Local development
 
-Production mode, where Express serves the built client and Vite is not involved:
+Requirements: Node.js 22+, npm, Git 2.30+, and PostgreSQL. Tests use embedded PostgreSQL (PGlite)
+and real temporary Git repositories, not your Neon database.
+
+1. Run `npm ci`.
+2. Copy `.env.example` to `.env.local`, retaining the existing Neon URLs if already configured.
+3. Configure `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `RAT_APP_ORIGIN=http://localhost:5173`.
+4. Run `npm run migrate`.
+5. Run `npm run dev` (starts API, worker, and frontend together).
+6. Open http://localhost:5173 and click **+** to import a URL or ZIP.
+
+The API listens on port 8787; Vite proxies `/api` to it. The API also honors `PORT` or `RAT_PORT`.
+Environment files are server-only and gitignored. Never put database credentials in a `VITE_` variable.
+Node loads `.env.local`, then `.env`, without replacing externally supplied environment variables.
+
+Production build:
 
 ```bash
 npm run build
-npm start            # http://localhost:8787
+npm run migrate:production
+npm start
+# Separate process:
+npm run worker
 ```
 
-The first run creates `data/` (the SQLite database plus the working copies of ingested repositories)
-and starts empty. Add a repository from the UI: either a zip that contains `.git`, or a remote URL to
-deep clone. Everything stays on the local machine.
+Set `RAT_APP_ORIGIN` to the actual website origin, including scheme. Cross-site browser writes
+are rejected, without requiring login. Use the Docker/Caddy configuration for HTTPS at `rat.thestone.co.za`:
+[Deployment instructions](DEPLOYMENT.md).
 
-If `npm install` fails while building `better-sqlite3` (`gyp ERR!`), point node-gyp at the system
-Python and retry: `npm_config_python=/usr/bin/python3 npm install`. More in
-[Troubleshooting](#troubleshooting).
+## Metrics and behavior
 
----
+Notation follows the brief: added/removed lines, growth, churn, modifications, modification frequency,
+churn rate, author modifications/churn and ownership. Directory metrics are recursive rollups;
+repository metrics are root-directory metrics.
 
-Everything below is additional detail.
+- Multiple repositories; full HTTPS clones or self-contained ZIP archives containing `.git`.
+- Non-merge commits reachable from HEAD; binary changes excluded.
+- Rename detection at 50%; edited renames are attributed to the new path.
+- Filters by repository, author, file/directory, committer-date period, or selected commit hashes.
+- Date intervals are inclusive-start/exclusive-end. The UI includes the complete selected end day.
+- `.mailmap` and durable manual author merges; ownership uses total churn across all authors.
+- Searchable, paginated commit selection and paginated directory metrics.
+- The indexed HEAD hash identifies the analyzed snapshot. Updating a remote does not automatically
+  refresh an analysis; delete/re-import for a new snapshot.
 
-## What it measures
+All imported data is public, including author names and emails. Do not upload sensitive repositories.
+For safety, external Git pointer files/alternates and archive symlinks are rejected. Default quotas
+and known free-hosting limitations are documented in [DEPLOYMENT.md](DEPLOYMENT.md).
+The old `data/rat.db` is untouched; re-import repositories instead of assuming SQLite data migrated.
 
-Notation follows the brief: `l⁺` added lines, `l⁻` removed lines, `δ = l⁺ − l⁻` growth,
-`λ = l⁺ + l⁻` churn, `n` modifications, `η = n/|H|` modification frequency, `ρ = λ/|H|` churn rate,
-`n_{H,o,a}` / `λ_{H,o,a}` author modifications and churn, and `ω = λ_{H,o,a}/λ_{H,o}` ownership.
-Directory metrics are the recursive sum over their contents; repository metrics are the directory
-metrics of the root; commit sets `H_t` and `H_{i,j}` filter on **committer date**. Binary files are
-excluded from every measurement, renames are detected at 50% and attributed to the new path, and
-`H` contains non-merge commits only.
-
-The assignment brief this implements, including all formulae, is [`docs/test_brief.md`](./docs/test_brief.md).
-
-## Features
-
-| Brief requirement | Implementation |
-| --- | --- |
-| Repository upload: zip containing `.git` | streamed to `data/uploads`, extracted, rejected if no `.git` |
-| Repository upload: remote URL | full `git clone` (no shallow depth) into `data/repos/<id>` |
-| Multiple repositories | each isolated on disk and scoped by `repository_id` in the database |
-| File, directory, repository, commit-set and author metrics | all five families in `src/server/metrics/queryEngine.ts` |
-| Filtering by repository, author, file or directory, commit set | filter bar plus query parameters on `/api/metrics/*` |
-| Author merging via `.mailmap` | applied at ingest through `git check-mailmap` |
-| Manual author merging | Authors page; metrics recompute immediately because aggregates join on `canonical_id` |
-| Renames, deletions, binary exclusion, non-merge commits | delegated to git's own diff engine (`--numstat -z -M50% --no-merges`) |
-
-Ingest runs as a serial background job that publishes progress to the `jobs` table, so the UI can
-show stage and percentage while a large repository is indexed.
-
-## Tests
-
-Vitest, 86 tests across 5 suites:
+## Validation
 
 ```bash
-npm test             # or: npx vitest run tests/unit/metrics.test.ts
-npm run test:watch
+npm test
 npm run typecheck
+npm run build
 ```
 
-| Suite | Covers |
-| --- | --- |
-| `tests/unit/gitLogParser.test.ts` | `git log --numstat -z` byte protocol: merges, renames, deletions, binary, spaced paths |
-| `tests/unit/ingest.test.ts` | pipeline stages, materialised ancestor rollup, mailmap grouping, zip ingestion |
-| `tests/unit/metrics.test.ts` | every metric family and filter from the brief, against hand-computed values |
-| `tests/unit/api.test.ts` | all HTTP routes on an ephemeral port, filter parameters and error contracts |
-| `tests/unit/edgeCases.test.ts` | pathological repositories: no commits, file-less commits, binary-only history, awkward paths, a file that becomes a directory, re-ingestion, cascade deletion, `PRAGMA integrity_check` |
+Tests use deterministic Git histories to check parser framing, all metric families, author merging,
+ingestion, filtering, API behavior and edge cases. They create isolated scratch files under
+the operating-system temporary directory (outside synced workspaces) and isolated embedded
+PostgreSQL databases.
+Large-repository performance requires separate measurement; small-fixture tests are not a benchmark.
 
-Tests build a throwaway git fixture (`tests/helpers/fixture.ts`) with deterministic dates and run
-against an isolated scratch database, so they never touch `data/rat.db`. They shell out to `git` and
-`zip`, both of which must be on `PATH`.
+The three real Neon integration tests are opt-in. Set `RAT_NEON_TEST_URL` to a **direct,
+non-pooled URL for a disposable branch**, then run `npm test -- tests/integration/neon.test.ts`.
+They run migrations and import repositories; never point them at your live database.
 
-## Where data lives
+## Storage and operations
 
-Everything is local to the machine — nothing is uploaded anywhere and no external database is used:
-
-```text
-data/rat.db            SQLite database (repositories, authors, commits, objects, changes, jobs)
-data/repos/<id>/       working copy of each ingested repository (clone or unzipped upload)
-data/uploads/          transient zip uploads (deleted after extraction)
-data/test-tmp/         scratch fixtures and databases created by `npm test`
-```
-
-`data/` is gitignored, so a fresh clone of this repository starts empty.
-
-## Repository layout
-
-```text
-src/shared/      API contract types shared by client and server
-src/server/      Express API: app.ts, db/, ingest/, metrics/, jobs/, routes/
-src/client/      React + Vite dashboard: lib/, components/, pages/, styles/
-tests/           Vitest suites and the deterministic git fixture
-docs/            the assignment brief (test_brief.md)
-```
-
-[`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) records the delivery plan, the database design
-rationale and the metric-to-SQL mapping.
-
-## Troubleshooting
-
-- **`better-sqlite3` fails to build (`gyp ERR!`)** — happens when node-gyp picks up a Python that
-  lacks the `gyp` package metadata (e.g. an Anaconda python first on `PATH`). Build with the system
-  python instead:
-  `npm_config_python=/usr/bin/python3 npm install`
-- **Port already in use** — override with `RAT_PORT=9000 npm run dev:server`. Vite then needs
-  `server.proxy` in `vite.config.ts` pointed at the same port.
-- **Different data location** — override with `RAT_DATA_DIR=/path/to/data`.
-- **A repository was ingested before a parser fix** — its commit counts can be stale; delete it from
-  the Repositories page and add it again to re-index from scratch.
+`RAT_DATA_DIR` defaults to `data` and contains `repos/<id>` and transient `uploads`.
+Metrics and jobs survive application restarts in PostgreSQL. Jobs carry leases and crash recovery;
+the supported deployment is one worker replica. Repository deletion is blocked while indexing.
+The deployment includes versioned migrations, graceful shutdown, health checks and TLS.
+Back up PostgreSQL and repository volumes; a free hosting account is not a backup or uptime guarantee.
 
 ## AI usage declaration
 

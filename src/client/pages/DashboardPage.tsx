@@ -137,49 +137,126 @@ export function DashboardPage(props: {
   onFiltersChange: (f: UiFilters) => void;
 }) {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  const [object, setObject] = useState<MetricsResponse | null>(null);
+  const [scopedObject, setScopedObject] = useState<MetricsResponse | null>(null);
   const [children, setChildren] = useState<ChildrenResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+  const [scopeError, setScopeError] = useState('');
+  const [debouncedPath, setDebouncedPath] = useState(props.filters.path);
+  const [childrenOffset, setChildrenOffset] = useState(0);
   const repo = props.repos.find((item) => item.id === props.repoId);
   const repoStatus = repo?.status;
+  const { authorId, from, to, commits, path } = props.filters;
+  const commitKey = commits.join(',');
+  const pathIsDebouncing = path !== debouncedPath;
+  const childrenPageSize = 50;
 
   useEffect(() => {
     if (!props.repoId || repoStatus !== 'ready') {
       setSummary(null);
-      setObject(null);
-      setChildren(null);
-      setLoading(false);
-      setError('');
+      setSummaryLoading(false);
+      setSummaryError('');
       return;
     }
-    let cancelled = false;
-    setError('');
-    setLoading(true);
-    const base = filtersToQuery(props.repoId, { ...props.filters, path: '' });
-    const scoped = filtersToQuery(props.repoId, props.filters);
-    Promise.all([api.summary(base), api.object(scoped), api.children(scoped)])
-      .then(([s, o, c]) => {
-        if (cancelled) return;
-        setSummary(s);
-        setObject(o);
-        setChildren(c);
+    const controller = new AbortController();
+    setSummary(null);
+    setSummaryError('');
+    setSummaryLoading(true);
+    const base = filtersToQuery(props.repoId, { authorId, from, to, commits, path: '' });
+    api
+      .summary(base, controller.signal)
+      .then((result) => {
+        setSummary(result);
       })
       .catch((err: Error) => {
-        if (!cancelled) {
-          setError(err.message);
-          setSummary(null);
-          setObject(null);
+        if (err.name !== 'AbortError') setSummaryError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSummaryLoading(false);
+      });
+    return () => controller.abort();
+  }, [props.repoId, repoStatus, authorId, from, to, commitKey]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedPath(path);
+      setChildrenOffset(0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [path]);
+
+  useEffect(() => {
+    if (!props.repoId || repoStatus !== 'ready') {
+      setScopedObject(null);
+      setChildren(null);
+      setScopeLoading(false);
+      setScopeError('');
+      return;
+    }
+    if (pathIsDebouncing) {
+      setScopedObject(null);
+      setChildren(null);
+      setScopeLoading(true);
+      return;
+    }
+    const controller = new AbortController();
+    setScopeError('');
+    setScopeLoading(true);
+    const scoped = filtersToQuery(props.repoId, { authorId, from, to, commits, path: debouncedPath });
+    const childrenRequest = api.children(scoped, childrenPageSize, childrenOffset, controller.signal);
+    const requests = debouncedPath
+      ? Promise.all([api.object(scoped, controller.signal), childrenRequest] as const)
+      : Promise.all([childrenRequest]);
+
+    requests
+      .then((result) => {
+        if (debouncedPath) {
+          const [objectResult, childrenResult] = result as readonly [MetricsResponse, ChildrenResponse];
+          setScopedObject(objectResult);
+          setChildren(childrenResult);
+        } else {
+          setScopedObject(null);
+          setChildren(result[0] as ChildrenResponse);
+        }
+      })
+      .catch((err: Error) => {
+        if (err.name !== 'AbortError') {
+          setScopeError(err.message);
+          setScopedObject(null);
           setChildren(null);
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setScopeLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.repoId, props.filters, repoStatus]);
+    return () => controller.abort();
+  }, [
+    props.repoId,
+    repoStatus,
+    authorId,
+    from,
+    to,
+    commitKey,
+    debouncedPath,
+    pathIsDebouncing,
+    childrenOffset,
+  ]);
+
+  const object: MetricsResponse | null = path
+    ? scopedObject
+    : summary
+      ? {
+          repositoryId: props.repoId!,
+          path: '',
+          kind: summary.root.kind,
+          metrics: summary.root,
+          authors: summary.authors,
+          timeline: summary.timeline,
+        }
+      : null;
+  const loading = scopeLoading || (!path && summaryLoading);
+  const error = [summaryError, scopeError].filter(Boolean).join(' ');
 
   return (
     <>
@@ -203,7 +280,7 @@ export function DashboardPage(props: {
           onFiltersChange={props.onFiltersChange}
         />
       )}
-      {loading && <RatWheelLoader />}
+      {(loading || pathIsDebouncing) && <RatWheelLoader />}
       {error && (
         <section className="panel">
           <p className="error-text">{error}</p>
@@ -225,9 +302,30 @@ export function DashboardPage(props: {
               onPick={(row) => props.onFiltersChange({ ...props.filters, path: row.path })}
             />
           )}
+          {children && children.total > 0 && (
+            <div className="children-pagination">
+              <button
+                className="secondary"
+                disabled={scopeLoading || childrenOffset === 0}
+                onClick={() => setChildrenOffset((offset) => Math.max(0, offset - childrenPageSize))}
+              >
+                Previous
+              </button>
+              <span className="muted text-small">
+                Showing {childrenOffset + 1}–{Math.min(childrenOffset + children.children.length, children.total)} of {children.total}
+              </span>
+              <button
+                className="secondary"
+                disabled={scopeLoading || childrenOffset + children.children.length >= children.total}
+                onClick={() => setChildrenOffset((offset) => offset + childrenPageSize)}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </>
       )}
-      {!loading && summary && (
+      {!summaryLoading && summary && (
         <>
           <ObjectTable title="Top Churned Files" rows={summary.topChurn} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />
           <ObjectTable title="Most Modified Files" rows={summary.topModified} onPick={(r) => props.onFiltersChange({ ...props.filters, path: r.path })} />

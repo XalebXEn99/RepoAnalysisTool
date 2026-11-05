@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 /**
  * Deterministic git fixture covering every edge case the brief calls out:
@@ -8,7 +9,7 @@ import path from 'node:path';
  * paths with spaces, multiple author identities and a .mailmap.
  */
 
-export const FIXTURE_ROOT = path.resolve(__dirname, '../../data/test-tmp');
+export const FIXTURE_ROOT = path.join(os.tmpdir(), 'rat-test-tmp');
 export const BASE_DATE = 1600000000;
 export const DAY = 86400;
 

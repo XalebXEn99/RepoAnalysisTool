@@ -10,3 +10,8 @@ tests
 *.log
 .DS_Store
 tmp
+.env
+.env.*
+.neon
+railway-step1-landing.png
+railway-step3-github-login.png

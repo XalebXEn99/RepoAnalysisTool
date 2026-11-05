@@ -1,13 +1,36 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import extractZip from 'extract-zip';
+import yauzl, { type Entry, type ZipFile } from 'yauzl';
+import { pipeline } from 'node:stream/promises';
 import type { AuthorIdent } from './mailmap';
+import { GIT_TIMEOUT_MS, MAX_EXTRACT_BYTES } from '../config';
+import { HttpError } from '../http';
+
+export function gitEnvironment(): NodeJS.ProcessEnv {
+  return {
+    ...process.env, GIT_PAGER: 'cat', LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0',
+    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+    GIT_ALLOW_PROTOCOL: 'https',
+  };
+}
+
+export function validateRemoteUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new HttpError(400, 'a valid HTTPS repository URL is required'); }
+  const allowed = (process.env.RAT_ALLOWED_GIT_HOSTS ?? 'github.com,gitlab.com,bitbucket.org').split(',').map((host) => host.trim().toLowerCase());
+  if (url.protocol !== 'https:' || !allowed.includes(url.hostname.toLowerCase()) ||
+    url.username || url.password || url.port || url.search || url.hash) {
+    throw new HttpError(400, 'use a public HTTPS repository URL on an allowed Git host; embedded credentials are not accepted');
+  }
+  return url.toString();
+}
 
 export function runGit(repoPath: string, args: string[]): string {
   const res = spawnSync('git', ['-C', repoPath, ...args], {
     maxBuffer: 512 * 1024 * 1024,
-    env: { ...process.env, GIT_PAGER: 'cat', LC_ALL: 'C' },
+    timeout: GIT_TIMEOUT_MS,
+    env: gitEnvironment(),
   });
   if (res.error) throw res.error;
   if (res.status !== 0) {
@@ -17,21 +40,57 @@ export function runGit(repoPath: string, args: string[]): string {
 }
 
 /** Deep clone (full history) of a remote repository, per docs/test_brief.md §1. */
-export function cloneRepository(url: string, dest: string): void {
+export async function cloneRepository(url: string, dest: string, signal?: AbortSignal): Promise<void> {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  const res = spawnSync('git', ['clone', '--', url, dest], {
-    maxBuffer: 256 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('git', ['-c', 'http.followRedirects=false', 'clone', '--no-checkout', '--', validateRemoteUrl(url), dest], {
+      env: gitEnvironment(), stdio: ['ignore', 'ignore', 'pipe'], signal, timeout: GIT_TIMEOUT_MS,
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000); });
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(`git clone failed: ${stderr || `exit ${code}`}`)));
   });
-  if (res.error) throw res.error;
-  if (res.status !== 0) {
-    throw new Error(`git clone failed: ${res.stderr?.toString().trim() || 'unknown error'}`);
-  }
 }
 
 export async function extractRepositoryZip(zipPath: string, dest: string): Promise<void> {
-  fs.mkdirSync(dest, { recursive: true });
-  await extractZip(zipPath, { dir: dest });
+  await fs.promises.mkdir(dest, { recursive: true });
+  let bytes = 0;
+  let entries = 0;
+  const zip = await new Promise<ZipFile>((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true, validateEntrySizes: true }, (error, file) => {
+      if (error || !file) reject(error ?? new Error('unable to open archive'));
+      else resolve(file);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: unknown) => { zip.close(); reject(error); };
+    zip.once('error', fail);
+    zip.once('end', resolve);
+    zip.on('entry', (entry: Entry) => {
+      void (async () => {
+        bytes += entry.uncompressedSize;
+        entries += 1;
+        if (((entry.externalFileAttributes >>> 16) & 0xf000) === 0xa000) throw new Error('archive symlinks are not supported');
+        if (bytes > MAX_EXTRACT_BYTES || entries > 100000) throw new Error('archive exceeds extracted size or file-count limit');
+        if (entry.fileName.includes('\\') || entry.fileName.includes('\0')) throw new Error('invalid archive path');
+        const output = path.resolve(dest, entry.fileName);
+        const relative = path.relative(dest, output);
+        if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('archive path escapes destination');
+        if (entry.fileName.endsWith('/')) {
+          await fs.promises.mkdir(output, { recursive: true });
+        } else {
+          await fs.promises.mkdir(path.dirname(output), { recursive: true });
+          const stream = await new Promise<NodeJS.ReadableStream>((openResolve, openReject) => {
+            zip.openReadStream(entry, (error, readable) => error || !readable ? openReject(error ?? new Error('invalid archive entry')) : openResolve(readable));
+          });
+          await pipeline(stream, fs.createWriteStream(output, { flags: 'wx' }));
+        }
+        zip.readEntry();
+      })().catch(fail);
+    });
+    zip.readEntry();
+  });
 }
 
 /** A repository zip must ship its .git (docs/test_brief.md §1). */
@@ -59,7 +118,8 @@ export function locateRepoRoot(extractDir: string): string | null {
  */
 export function headCommit(repoPath: string): string | null {
   const res = spawnSync('git', ['-C', repoPath, 'rev-parse', '--verify', '-q', 'HEAD'], {
-    env: { ...process.env, GIT_PAGER: 'cat', LC_ALL: 'C' },
+    env: gitEnvironment(),
+    timeout: GIT_TIMEOUT_MS,
   });
   if (res.error) throw res.error;
   if (res.status !== 0) return null;
